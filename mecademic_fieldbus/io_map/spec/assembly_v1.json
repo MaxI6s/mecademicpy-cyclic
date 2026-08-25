@@ -1,0 +1,783 @@
+{
+  "spec_format_version": 1,
+  "assembly_version": "1",
+  "description": "Assembly layout of the Meca500 robot, generated from Meca500_v11.3.3.12637-official.eds by tools/eds_to_spec.py. Do not edit by hand: re-run the generator against a newer EDS instead.",
+  "source": {
+    "file": "Meca500_v11.3.3.12637-official.eds",
+    "eds_revision": "2.6",
+    "product_name": "Meca500",
+    "firmware_revision": "11.3"
+  },
+  "byte_order": "little",
+  "connection": {
+    "connection_path": "20 04 2C 96 2C 64",
+    "network_connection_parameters": "0x44640405",
+    "output_run_idle_header": true,
+    "input_run_idle_header": false,
+    "rpi_microseconds_min": 10000,
+    "rpi_microseconds_max": 10000000,
+    "rpi_microseconds_default": 10000,
+    "vendor_id": 1565,
+    "product_type": 43,
+    "product_code": 500,
+    "major_revision": 11,
+    "minor_revision": 3
+  },
+  "motion_commands": {
+    "description": "Identifiers accepted in the MotionCommand field of the output assembly, keyed by command name. The EDS, the GSDML and the ESI all defer these to the programming manual, so they cannot be generated and must be filled in by hand.",
+    "ids": {}
+  },
+  "assemblies": {
+    "input": {
+      "direction": "target_to_originator",
+      "instance": 100,
+      "size_bytes": 252,
+      "description": "Robot to scanner: cyclic robot state.",
+      "fields": [
+        {
+          "name": "RobotStatus_Busy",
+          "type": "bool",
+          "byte_offset": 0,
+          "bit_offset": 0
+        },
+        {
+          "name": "RobotStatus_Activated",
+          "type": "bool",
+          "byte_offset": 0,
+          "bit_offset": 1
+        },
+        {
+          "name": "RobotStatus_Homed",
+          "type": "bool",
+          "byte_offset": 0,
+          "bit_offset": 2
+        },
+        {
+          "name": "RobotStatus_SimActivated",
+          "type": "bool",
+          "byte_offset": 0,
+          "bit_offset": 3
+        },
+        {
+          "name": "RobotStatus_BrakesEngaged",
+          "type": "bool",
+          "byte_offset": 0,
+          "bit_offset": 4
+        },
+        {
+          "name": "RobotStatus_RecoveryMode",
+          "type": "bool",
+          "byte_offset": 0,
+          "bit_offset": 5
+        },
+        {
+          "name": "RobotStatus_EStop",
+          "type": "bool",
+          "byte_offset": 0,
+          "bit_offset": 6
+        },
+        {
+          "name": "RobotStatus_CollisionStatus",
+          "type": "bool",
+          "byte_offset": 0,
+          "bit_offset": 7
+        },
+        {
+          "name": "RobotStatus_WorkZoneStatus",
+          "type": "bool",
+          "byte_offset": 1,
+          "bit_offset": 0
+        },
+        {
+          "name": "RobotStatus_MonitoringMode",
+          "type": "bool",
+          "byte_offset": 1,
+          "bit_offset": 1
+        },
+        {
+          "name": "RobotStatus_Error",
+          "type": "uint16",
+          "byte_offset": 2,
+          "description": "Error code (refer to programming manual for specific error code meaning)"
+        },
+        {
+          "name": "MotionStatus_ReachedCheckpointId",
+          "type": "uint16",
+          "byte_offset": 4,
+          "description": "Indicates which checkpoint id the robot has reached most recently"
+        },
+        {
+          "name": "MotionStatus_DiscardedCheckpointId",
+          "type": "uint16",
+          "byte_offset": 6,
+          "description": "Indicates which checkpoint id the robot has discarded most recently"
+        },
+        {
+          "name": "MotionStatus_MoveID",
+          "type": "uint16",
+          "byte_offset": 8,
+          "description": "Latest \\move id\\ that was received and queued by the robot"
+        },
+        {
+          "name": "MotionStatus_FIFOSpace",
+          "type": "uint16",
+          "byte_offset": 10,
+          "description": "Number of commands that the robot can receive and queue at the moment"
+        },
+        {
+          "name": "MotionStatus_Paused",
+          "type": "bool",
+          "byte_offset": 12,
+          "bit_offset": 0
+        },
+        {
+          "name": "MotionStatus_EOB",
+          "type": "bool",
+          "byte_offset": 12,
+          "bit_offset": 1
+        },
+        {
+          "name": "MotionStatus_EOM",
+          "type": "bool",
+          "byte_offset": 12,
+          "bit_offset": 2
+        },
+        {
+          "name": "MotionStatus_Cleared",
+          "type": "bool",
+          "byte_offset": 12,
+          "bit_offset": 3
+        },
+        {
+          "name": "MotionStatus_PStop2",
+          "type": "bool",
+          "byte_offset": 12,
+          "bit_offset": 4
+        },
+        {
+          "name": "MotionStatus_ExcessiveTorque",
+          "type": "bool",
+          "byte_offset": 12,
+          "bit_offset": 5
+        },
+        {
+          "name": "MotionStatus_OfflineProgramId",
+          "type": "uint16",
+          "byte_offset": 14,
+          "description": "Id of the offline program currently running (0 if none)"
+        },
+        {
+          "name": "JointSet_Joint1Pos",
+          "type": "float32",
+          "byte_offset": 16,
+          "unit": "deg",
+          "description": "Joint 1's angular position (-175 to +175)"
+        },
+        {
+          "name": "JointSet_Joint2Pos",
+          "type": "float32",
+          "byte_offset": 20,
+          "unit": "deg",
+          "description": "Joint 2's angular position (-70 to +90)"
+        },
+        {
+          "name": "JointSet_Joint3Pos",
+          "type": "float32",
+          "byte_offset": 24,
+          "unit": "deg",
+          "description": "Joint 3's angular position (-135 to +70)"
+        },
+        {
+          "name": "JointSet_Joint4Pos",
+          "type": "float32",
+          "byte_offset": 28,
+          "unit": "deg",
+          "description": "Joint 4's angular position (-170 to +170)"
+        },
+        {
+          "name": "JointSet_Joint5Pos",
+          "type": "float32",
+          "byte_offset": 32,
+          "unit": "deg",
+          "description": "Joint 5's angular position (-115 to +115)"
+        },
+        {
+          "name": "JointSet_Joint6Pos",
+          "type": "float32",
+          "byte_offset": 36,
+          "unit": "deg",
+          "description": "Joint 6's angular position (-36000 to +36000)"
+        },
+        {
+          "name": "EndEffectorPose_PosX",
+          "type": "float32",
+          "byte_offset": 40,
+          "unit": "mm",
+          "description": "X position"
+        },
+        {
+          "name": "EndEffectorPose_PosY",
+          "type": "float32",
+          "byte_offset": 44,
+          "unit": "mm",
+          "description": "Y position"
+        },
+        {
+          "name": "EndEffectorPose_PosZ",
+          "type": "float32",
+          "byte_offset": 48,
+          "unit": "mm",
+          "description": "Z position"
+        },
+        {
+          "name": "EndEffectorPose_AngA",
+          "type": "float32",
+          "byte_offset": 52,
+          "unit": "deg",
+          "description": "Alpha-angle position"
+        },
+        {
+          "name": "EndEffectorPose_AngB",
+          "type": "float32",
+          "byte_offset": 56,
+          "unit": "deg",
+          "description": "Beta-angle position"
+        },
+        {
+          "name": "EndEffectorPose_AngG",
+          "type": "float32",
+          "byte_offset": 60,
+          "unit": "deg",
+          "description": "Gamma-angle position"
+        },
+        {
+          "name": "Configuration_Shoulder",
+          "type": "int8",
+          "byte_offset": 64,
+          "description": "Current shoulder inverse kinematics configuration (either -1 or 1)"
+        },
+        {
+          "name": "Configuration_Elbow",
+          "type": "int8",
+          "byte_offset": 65,
+          "description": "Current elbow inverse kinematics configuration (either -1 or 1)"
+        },
+        {
+          "name": "Configuration_Wrist",
+          "type": "int8",
+          "byte_offset": 66,
+          "description": "Current wrist inverse kinematics configuration (either -1 or 1)"
+        },
+        {
+          "name": "Configuration_Turn",
+          "type": "int8",
+          "byte_offset": 67,
+          "description": "Current last joint turn (-100 to 100)"
+        },
+        {
+          "name": "WRF_PosX",
+          "type": "float32",
+          "byte_offset": 68,
+          "unit": "mm",
+          "description": "X position of WRF (relative to BRF)"
+        },
+        {
+          "name": "WRF_PosY",
+          "type": "float32",
+          "byte_offset": 72,
+          "unit": "mm",
+          "description": "Y position of WRF (relative to BRF)"
+        },
+        {
+          "name": "WRF_PosZ",
+          "type": "float32",
+          "byte_offset": 76,
+          "unit": "mm",
+          "description": "Z position of WRF (relative to BRF)"
+        },
+        {
+          "name": "WRF_AngA",
+          "type": "float32",
+          "byte_offset": 80,
+          "unit": "deg",
+          "description": "Alpha-angle position of WRF (relative to BRF)"
+        },
+        {
+          "name": "WRF_AngB",
+          "type": "float32",
+          "byte_offset": 84,
+          "unit": "deg",
+          "description": "Beta-angle position of WRF (relative to BRF)"
+        },
+        {
+          "name": "WRF_AngG",
+          "type": "float32",
+          "byte_offset": 88,
+          "unit": "deg",
+          "description": "Gamma-angle position of WRF (relative to BRF)"
+        },
+        {
+          "name": "TRF_PosX",
+          "type": "float32",
+          "byte_offset": 92,
+          "unit": "mm",
+          "description": "X position of TRF (relative to FRF)"
+        },
+        {
+          "name": "TRF_PosY",
+          "type": "float32",
+          "byte_offset": 96,
+          "unit": "mm",
+          "description": "Y position of TRF (relative to FRF)"
+        },
+        {
+          "name": "TRF_PosZ",
+          "type": "float32",
+          "byte_offset": 100,
+          "unit": "mm",
+          "description": "Z position of TRF (relative to FRF)"
+        },
+        {
+          "name": "TRF_AngA",
+          "type": "float32",
+          "byte_offset": 104,
+          "unit": "deg",
+          "description": "Alpha-angle position of TRF (relative to FRF)"
+        },
+        {
+          "name": "TRF_AngB",
+          "type": "float32",
+          "byte_offset": 108,
+          "unit": "deg",
+          "description": "Beta-angle position of TRF (relative to FRF)"
+        },
+        {
+          "name": "TRF_AngG",
+          "type": "float32",
+          "byte_offset": 112,
+          "unit": "deg",
+          "description": "Gamma-angle position of TRF (relative to FRF)"
+        },
+        {
+          "name": "Timestamp_Second",
+          "type": "int32",
+          "byte_offset": 116,
+          "unit": "sec",
+          "description": "Robot timestamp (seconds) indicating when input info was updated"
+        },
+        {
+          "name": "Timestamp_Microsecond",
+          "type": "int32",
+          "byte_offset": 120,
+          "unit": "us",
+          "description": "Robot timestamp (microsecond part) indicating when input info was updated"
+        },
+        {
+          "name": "DynamicDataCycles",
+          "type": "int32",
+          "byte_offset": 124,
+          "description": "Number of times all available dynamic data was updated"
+        },
+        {
+          "name": "StopMask_EStop",
+          "type": "bool",
+          "byte_offset": 128,
+          "bit_offset": 0
+        },
+        {
+          "name": "StopMask_PStop2",
+          "type": "bool",
+          "byte_offset": 128,
+          "bit_offset": 2
+        },
+        {
+          "name": "StopMask_Reboot",
+          "type": "bool",
+          "byte_offset": 128,
+          "bit_offset": 7
+        },
+        {
+          "name": "StopMask_ConnectionDropped",
+          "type": "bool",
+          "byte_offset": 129,
+          "bit_offset": 2
+        },
+        {
+          "name": "StopResettableMask_EStop",
+          "type": "bool",
+          "byte_offset": 132,
+          "bit_offset": 0
+        },
+        {
+          "name": "StopResettableMask_PStop2",
+          "type": "bool",
+          "byte_offset": 132,
+          "bit_offset": 2
+        },
+        {
+          "name": "StopResettableMask_Reboot",
+          "type": "bool",
+          "byte_offset": 132,
+          "bit_offset": 7
+        },
+        {
+          "name": "StopResettableMask_ConnectionDropped",
+          "type": "bool",
+          "byte_offset": 133,
+          "bit_offset": 2
+        },
+        {
+          "name": "SafetyStatus_State_ResetReady",
+          "type": "bool",
+          "byte_offset": 137,
+          "bit_offset": 0
+        },
+        {
+          "name": "SafetyStatus_State_VMotorOn",
+          "type": "bool",
+          "byte_offset": 137,
+          "bit_offset": 1
+        },
+        {
+          "name": "DynamicType0",
+          "type": "int32",
+          "byte_offset": 140,
+          "description": "Dynamic type of the 6 following values, for dynamic index 0"
+        },
+        {
+          "name": "DynamicData0_value0",
+          "type": "float32",
+          "byte_offset": 144,
+          "description": "Value 0 for Dynamic data index 0 (usage depends on DynamicType0)"
+        },
+        {
+          "name": "DynamicData0_value1",
+          "type": "float32",
+          "byte_offset": 148,
+          "description": "Value 1 for Dynamic data index 0 (usage depends on DynamicType0)"
+        },
+        {
+          "name": "DynamicData0_value2",
+          "type": "float32",
+          "byte_offset": 152,
+          "description": "Value 2 for Dynamic data index 0 (usage depends on DynamicType0)"
+        },
+        {
+          "name": "DynamicData0_value3",
+          "type": "float32",
+          "byte_offset": 156,
+          "description": "Value 3 for Dynamic data index 0 (usage depends on DynamicType0)"
+        },
+        {
+          "name": "DynamicData0_value4",
+          "type": "float32",
+          "byte_offset": 160,
+          "description": "Value 4 for Dynamic data index 0 (usage depends on DynamicType0)"
+        },
+        {
+          "name": "DynamicData0_value5",
+          "type": "float32",
+          "byte_offset": 164,
+          "description": "Value 5 for Dynamic data index 0 (usage depends on DynamicType0)"
+        },
+        {
+          "name": "DynamicType1",
+          "type": "int32",
+          "byte_offset": 168,
+          "description": "Dynamic type of the 6 following values, for dynamic index 1"
+        },
+        {
+          "name": "DynamicData1_value0",
+          "type": "float32",
+          "byte_offset": 172,
+          "description": "Value 0 for Dynamic data index 1 (usage depends on DynamicType1)"
+        },
+        {
+          "name": "DynamicData1_value1",
+          "type": "float32",
+          "byte_offset": 176,
+          "description": "Value 1 for Dynamic data index 1 (usage depends on DynamicType1)"
+        },
+        {
+          "name": "DynamicData1_value2",
+          "type": "float32",
+          "byte_offset": 180,
+          "description": "Value 2 for Dynamic data index 1 (usage depends on DynamicType1)"
+        },
+        {
+          "name": "DynamicData1_value3",
+          "type": "float32",
+          "byte_offset": 184,
+          "description": "Value 3 for Dynamic data index 1 (usage depends on DynamicType1)"
+        },
+        {
+          "name": "DynamicData1_value4",
+          "type": "float32",
+          "byte_offset": 188,
+          "description": "Value 4 for Dynamic data index 1 (usage depends on DynamicType1)"
+        },
+        {
+          "name": "DynamicData1_value5",
+          "type": "float32",
+          "byte_offset": 192,
+          "description": "Value 5 for Dynamic data index 1 (usage depends on DynamicType1)"
+        },
+        {
+          "name": "DynamicType2",
+          "type": "int32",
+          "byte_offset": 196,
+          "description": "Dynamic type of the 6 following values, for dynamic index 2"
+        },
+        {
+          "name": "DynamicData2_value0",
+          "type": "float32",
+          "byte_offset": 200,
+          "description": "Value 0 for Dynamic data index 2 (usage depends on DynamicType2)"
+        },
+        {
+          "name": "DynamicData2_value1",
+          "type": "float32",
+          "byte_offset": 204,
+          "description": "Value 1 for Dynamic data index 2 (usage depends on DynamicType2)"
+        },
+        {
+          "name": "DynamicData2_value2",
+          "type": "float32",
+          "byte_offset": 208,
+          "description": "Value 2 for Dynamic data index 2 (usage depends on DynamicType2)"
+        },
+        {
+          "name": "DynamicData2_value3",
+          "type": "float32",
+          "byte_offset": 212,
+          "description": "Value 3 for Dynamic data index 2 (usage depends on DynamicType2)"
+        },
+        {
+          "name": "DynamicData2_value4",
+          "type": "float32",
+          "byte_offset": 216,
+          "description": "Value 4 for Dynamic data index 2 (usage depends on DynamicType2)"
+        },
+        {
+          "name": "DynamicData2_value5",
+          "type": "float32",
+          "byte_offset": 220,
+          "description": "Value 5 for Dynamic data index 2 (usage depends on DynamicType2)"
+        },
+        {
+          "name": "DynamicType3",
+          "type": "int32",
+          "byte_offset": 224,
+          "description": "Dynamic type of the 6 following values, for dynamic index 3"
+        },
+        {
+          "name": "DynamicData3_value0",
+          "type": "float32",
+          "byte_offset": 228,
+          "description": "Value 0 for Dynamic data index 3 (usage depends on DynamicType3)"
+        },
+        {
+          "name": "DynamicData3_value1",
+          "type": "float32",
+          "byte_offset": 232,
+          "description": "Value 1 for Dynamic data index 3 (usage depends on DynamicType3)"
+        },
+        {
+          "name": "DynamicData3_value2",
+          "type": "float32",
+          "byte_offset": 236,
+          "description": "Value 2 for Dynamic data index 2 (usage depends on DynamicType3)"
+        },
+        {
+          "name": "DynamicData3_value3",
+          "type": "float32",
+          "byte_offset": 240,
+          "description": "Value 3 for Dynamic data index 3 (usage depends on DynamicType3)"
+        },
+        {
+          "name": "DynamicData3_value4",
+          "type": "float32",
+          "byte_offset": 244,
+          "description": "Value 4 for Dynamic data index 3 (usage depends on DynamicType3)"
+        },
+        {
+          "name": "DynamicData3_value5",
+          "type": "float32",
+          "byte_offset": 248,
+          "description": "Value 5 for Dynamic data index 3 (usage depends on DynamicType3)"
+        }
+      ]
+    },
+    "output": {
+      "direction": "originator_to_target",
+      "instance": 150,
+      "size_bytes": 60,
+      "description": "Scanner to robot: cyclic commands.",
+      "fields": [
+        {
+          "name": "RobotControl_Deactivate",
+          "type": "bool",
+          "byte_offset": 0,
+          "bit_offset": 0
+        },
+        {
+          "name": "RobotControl_Activate",
+          "type": "bool",
+          "byte_offset": 0,
+          "bit_offset": 1
+        },
+        {
+          "name": "RobotControl_Home",
+          "type": "bool",
+          "byte_offset": 0,
+          "bit_offset": 2
+        },
+        {
+          "name": "RobotControl_ResetError",
+          "type": "bool",
+          "byte_offset": 0,
+          "bit_offset": 3
+        },
+        {
+          "name": "RobotControl_EnableSimulation",
+          "type": "bool",
+          "byte_offset": 0,
+          "bit_offset": 4
+        },
+        {
+          "name": "RobotControl_EnableRecoveryMode",
+          "type": "bool",
+          "byte_offset": 0,
+          "bit_offset": 5
+        },
+        {
+          "name": "MotionControl_MoveId",
+          "type": "uint16",
+          "byte_offset": 4,
+          "description": "User-defined id of the command currently being sent (The robot will consider a new command is sent only when moveId is changed)"
+        },
+        {
+          "name": "MotionControl_Setpoint",
+          "type": "bool",
+          "byte_offset": 6,
+          "bit_offset": 0
+        },
+        {
+          "name": "MotionControl_Pause",
+          "type": "bool",
+          "byte_offset": 6,
+          "bit_offset": 1
+        },
+        {
+          "name": "MotionControl_ClearMove",
+          "type": "bool",
+          "byte_offset": 6,
+          "bit_offset": 2
+        },
+        {
+          "name": "MotionControl_ResumeMotion",
+          "type": "bool",
+          "byte_offset": 6,
+          "bit_offset": 3
+        },
+        {
+          "name": "MotionControl_UseVariables",
+          "type": "bool",
+          "byte_offset": 6,
+          "bit_offset": 4
+        },
+        {
+          "name": "MotionCommand",
+          "type": "int32",
+          "byte_offset": 8,
+          "description": "The move command to apply"
+        },
+        {
+          "name": "MotionCommand_Arg1",
+          "type": "float32",
+          "byte_offset": 12,
+          "description": "Argument 1 for move command (meaning depends on the command id)"
+        },
+        {
+          "name": "MotionCommand_Arg2",
+          "type": "float32",
+          "byte_offset": 16,
+          "description": "Argument 2 for move command (meaning depends on the command id)"
+        },
+        {
+          "name": "MotionCommand_Arg3",
+          "type": "float32",
+          "byte_offset": 20,
+          "description": "Argument 3 for move command (meaning depends on the command id)"
+        },
+        {
+          "name": "MotionCommand_Arg4",
+          "type": "float32",
+          "byte_offset": 24,
+          "description": "Argument 4 for move command (meaning depends on the command id)"
+        },
+        {
+          "name": "MotionCommand_Arg5",
+          "type": "float32",
+          "byte_offset": 28,
+          "description": "Argument 5 for move command (meaning depends on the command id)"
+        },
+        {
+          "name": "MotionCommand_Arg6",
+          "type": "float32",
+          "byte_offset": 32,
+          "description": "Argument 6 for move command (meaning depends on the command id)"
+        },
+        {
+          "name": "HostTime",
+          "type": "int32",
+          "byte_offset": 36,
+          "description": "Host absolute time in seconds since epoch (to synchronize robot's time)"
+        },
+        {
+          "name": "Brakes_ControlAllowed",
+          "type": "bool",
+          "byte_offset": 40,
+          "bit_offset": 0
+        },
+        {
+          "name": "Brakes_Engaged",
+          "type": "bool",
+          "byte_offset": 40,
+          "bit_offset": 1
+        },
+        {
+          "name": "DynamicTypeCfg0",
+          "type": "int32",
+          "byte_offset": 44,
+          "description": "Type of dynamic data to return in dynamic data index 0"
+        },
+        {
+          "name": "DynamicTypeCfg1",
+          "type": "int32",
+          "byte_offset": 48,
+          "description": "Type of dynamic data to return in dynamic data index 1"
+        },
+        {
+          "name": "DynamicTypeCfg2",
+          "type": "int32",
+          "byte_offset": 52,
+          "description": "Type of dynamic data to return in dynamic data index 2"
+        },
+        {
+          "name": "DynamicTypeCfg3",
+          "type": "int32",
+          "byte_offset": 56,
+          "description": "Type of dynamic data to return in dynamic data index 3"
+        }
+      ]
+    },
+    "config": {
+      "direction": "originator_to_target",
+      "instance": null,
+      "size_bytes": 0,
+      "description": "The robot connection path carries no configuration assembly; the Forward Open must not include one.",
+      "fields": []
+    }
+  }
+}

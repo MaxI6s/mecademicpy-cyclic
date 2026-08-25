@@ -1,0 +1,78 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mecademic-fieldbus"
+version = "0.1.0"
+description = "Standalone EtherNet/IP scanner library for Mecademic robots running in fieldbus mode"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+keywords = ["mecademic", "robot", "ethernet-ip", "fieldbus", "cip", "industrial"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Manufacturing",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering",
+]
+# The core of the library -- data classes, I/O map, facade, robot simulator --
+# runs on the standard library alone. Only the EtherNet/IP transport needs a
+# protocol stack, and it is an optional extra.
+dependencies = []
+
+[project.optional-dependencies]
+# python-ethernetip (https://codeberg.org/paperwork/python-ethernetip),
+# published on PyPI as "ethernetip".
+ethernetip = ["ethernetip>=1.2.0"]
+dev = [
+    "ethernetip>=1.2.0",
+    "pytest>=7.0",
+    "black>=23.0",
+    "isort>=5.10",
+    "flake8>=6.0",
+]
+
+[project.scripts]
+mecademic-mock-robot = "mock_robot.__main__:main"
+
+[tool.setuptools]
+# TODO: "mock_robot" is a development tool that ships with the library so it
+# stays in sync with the assembly specification. Rename it to something less
+# generic before publishing this package anywhere public.
+packages = [
+    "mecademic_fieldbus",
+    "mecademic_fieldbus.io_map",
+    "mecademic_fieldbus.transports",
+    "mock_robot",
+]
+
+[tool.setuptools.package-data]
+# The declarative assembly specification is the source of truth of the I/O map
+# and must ship with the wheel.
+"mecademic_fieldbus.io_map" = ["spec/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: runs the mock robot on real sockets; needs TCP 44818 and UDP 2222",
+]
+
+[tool.black]
+line-length = 100
+target-version = ["py38"]
+
+[tool.isort]
+profile = "black"
+line_length = 100
+known_first_party = ["mecademic_fieldbus", "mock_robot"]
+
+[tool.flake8]
+# flake8 does not read pyproject.toml natively; see setup.cfg.
+max-line-length = 100
