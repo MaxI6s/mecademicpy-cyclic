@@ -164,3 +164,26 @@ def test_reply_parsing_rejects_a_missing_response() -> None:
     originator = EipOriginator("127.0.0.1")
     with pytest.raises(ValueError):
         originator._parse_forward_open_reply({0x0000: b""})
+
+
+def test_reply_echoing_the_port_confirms_point_to_point() -> None:
+    """An echoed ``0.0.0.0`` endpoint means the target accepted the port.
+
+    It is the answer a point-to-point target gives; a multicast one returns a
+    group address instead.  Reading it is what tells a silent robot that
+    ignores the request apart from one that agreed and is being firewalled.
+    """
+    originator = EipOriginator("127.0.0.1")
+    items = build_reply_items(
+        socket_items={ITEM_SOCKADDR_TARGET_TO_ORIGINATOR: SocketAddress("0.0.0.0", 56243).encode()}
+    )
+    announced = originator._parse_forward_open_reply(items).target_to_originator_address
+    assert announced is not None
+    assert announced.address == "0.0.0.0"
+    assert announced.port == 56243
+    assert is_multicast(announced.address) is False
+
+
+def test_local_address_is_unknown_before_connecting() -> None:
+    """The address the target would see is only known once the socket is open."""
+    assert EipOriginator("127.0.0.1").local_address is None

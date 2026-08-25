@@ -140,6 +140,18 @@ class Capture:
             self.socket = None
 
 
+def _is_loopback(address: str) -> bool:
+    """Tell whether an address points back at this machine.
+
+    Args:
+        address: IPv4 address in dotted notation.
+
+    Returns:
+        ``True`` for anything in ``127.0.0.0/8``.
+    """
+    return address.split(".")[0] == "127"
+
+
 def produce(
     stop: threading.Event,
     address: str,
@@ -291,8 +303,47 @@ def verdict(
     announced = reply.target_to_originator_address
 
     if not received:
-        print("Nothing arrived anywhere, so the robot is not producing to this host.")
-        if announced is not None:
+        print("Nothing arrived anywhere, so nothing reached this tool's sockets.")
+        if announced is not None and announced.address == "0.0.0.0":
+            print()
+            print(
+                "The robot accepted the endpoint it was given: it echoed port {},".format(
+                    announced.port
+                )
+            )
+            print('with 0.0.0.0 meaning "the address you connected from". So it agreed')
+            print(
+                "to send to this host on UDP {} -- it is neither ignoring the socket".format(
+                    announced.port
+                )
+            )
+            print("address item nor using multicast. Something between its socket and")
+            print("ours is dropping the data.")
+            if announced.port != DEFAULT_UDP_PORT:
+                print()
+                print(
+                    "!! The agreed port is {}, not the standard {}.".format(
+                        announced.port, DEFAULT_UDP_PORT
+                    )
+                )
+                print(
+                    "   A firewall rule written for UDP {} does NOT cover it.".format(
+                        DEFAULT_UDP_PORT
+                    )
+                )
+                print("   Re-run asking for the standard port, which is also what")
+                print("   EtherNetIpTransport uses by default:")
+                print()
+                print(
+                    "     python tools/diagnose_connection.py --address {} --udp-port {}".format(
+                        address, DEFAULT_UDP_PORT
+                    )
+                )
+                print()
+                print("   Or allow the program rather than a port, which covers any port")
+                print("   it ends up using.")
+                return
+        elif announced is not None:
             print(
                 "It announced it would send to {}, which is where this tool listened.".format(
                     announced
@@ -341,7 +392,7 @@ def verdict(
         print("connected to. Connect using the address the robot answers from.")
 
 
-def run(address: str, rpi_ms: int, seconds: float, multicast: bool) -> int:
+def run(address: str, rpi_ms: int, seconds: float, multicast: bool, udp_port: int) -> int:
     """Open a connection, capture what comes back, and report.
 
     Args:
@@ -350,6 +401,8 @@ def run(address: str, rpi_ms: int, seconds: float, multicast: bool) -> int:
         seconds: How long to listen.
         multicast: Whether to request a multicast target-to-originator
             connection.
+        udp_port: Port to ask the robot to produce to, ``0`` for an ephemeral
+            one.
 
     Returns:
         The process exit code.
@@ -374,13 +427,28 @@ def run(address: str, rpi_ms: int, seconds: float, multicast: bool) -> int:
     print()
 
     standard = Capture("standard port", DEFAULT_UDP_PORT)
-    advertised = Capture("advertised port", 0)
-    captures = [standard, advertised]
+    secondary = Capture("secondary port", 0)
+    captures = [standard, secondary]
     if standard.bind_error is not None:
         print("warning: could not bind UDP {} -- {}".format(DEFAULT_UDP_PORT, standard.bind_error))
         print("         something else on this machine already holds it, which on its own")
         print("         explains a scanner never receiving anything.")
         print()
+
+    # Which port to ask the robot to produce to. The standard one by default,
+    # because that is what the transport uses and what a firewall rule is
+    # normally written for; an ephemeral one only when explicitly asked.
+    use_standard = udp_port == DEFAULT_UDP_PORT and standard.socket is not None
+    if use_standard and _is_loopback(address):
+        # A simulated robot on this machine already owns the standard port with
+        # a more specific bind, so datagrams sent to it never reach this tool.
+        print(
+            "note: {} is on this machine, so the standard port is already taken by".format(address)
+        )
+        print("      the target itself. Asking for an ephemeral port instead.")
+        print()
+        use_standard = False
+    advertised = standard if use_standard else secondary
 
     originator = EipOriginator(address)
     stop = threading.Event()
@@ -393,6 +461,7 @@ def run(address: str, rpi_ms: int, seconds: float, multicast: bool) -> int:
             print("cannot open a session with {}: {}".format(address, error), file=sys.stderr)
             return 1
         print("session registered (handle 0x{:08X})".format(originator.session))
+        print("  this host is seen by the robot as {}".format(originator.local_address or "?"))
 
         try:
             reply = originator.forward_open(
@@ -434,6 +503,24 @@ def run(address: str, rpi_ms: int, seconds: float, multicast: bool) -> int:
             print("  reply socket address: none returned by the robot")
 
         announced = reply.target_to_originator_address
+        if announced is not None:
+            print()
+            if announced.address == "0.0.0.0":
+                print(
+                    "  the robot echoed the endpoint it was asked to produce to: {}".format(
+                        announced
+                    )
+                )
+                print('  0.0.0.0 is the CIP convention for "the address you connected')
+                print(
+                    '  from", so it will send to {} on port {}.'.format(
+                        originator.local_address or "this host", announced.port
+                    )
+                )
+                print("  Echoing the port back means it ACCEPTED the socket address item,")
+                print("  and that the connection is point to point, not multicast.")
+            elif not is_multicast(announced.address):
+                print("  the robot will produce to {}".format(announced))
         if announced is not None and is_multicast(announced.address):
             print()
             print("  the robot announced a MULTICAST destination: {}".format(announced))
@@ -510,12 +597,19 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="how long to listen (default: %(default)s)",
     )
     parser.add_argument(
+        "--udp-port",
+        type=int,
+        default=DEFAULT_UDP_PORT,
+        help="port to ask the robot to produce to; 0 for an ephemeral one "
+        "(default: %(default)s, the standard port)",
+    )
+    parser.add_argument(
         "--multicast",
         action="store_true",
         help="request a multicast target-to-originator connection instead of point to point",
     )
     args = parser.parse_args(argv)
-    return run(args.address, args.rpi, args.seconds, args.multicast)
+    return run(args.address, args.rpi, args.seconds, args.multicast, args.udp_port)
 
 
 if __name__ == "__main__":

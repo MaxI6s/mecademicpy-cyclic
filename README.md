@@ -278,6 +278,26 @@ which buys two things the stack cannot give:
   address the robot answers *from*), and whose **connection id matches** the one
   returned by the Forward Open.
 
+### Reading the reply's socket address
+
+The `reply socket address` lines are the most informative part of the output:
+
+| Item | Meaning |
+| --- | --- |
+| `O->T <robot ip>:2222` (0x8000) | Where the robot *receives* what you produce. |
+| `T->O 0.0.0.0:<port>` (0x8001) | The robot **echoed** the endpoint you asked for. `0.0.0.0` is the CIP convention for "the address you connected from", so it will send to your host on that port. Echoing it means it accepted the item, and that the connection is point to point. |
+| `T->O 239.x.x.x:<port>` (0x8001) | The robot produces **multicast** to that group. A scanner that does not join it never sees a frame. |
+| *(no 0x8001 item)* | The robot said nothing about where it will send; it may well ignore the item and use the standard 2222. |
+
+An echoed `0.0.0.0:<port>` plus nothing captured is a *narrow* result: the robot
+agreed to send to that exact port, so it is neither ignoring the request nor
+using multicast, and something between the two sockets is dropping the data.
+
+> **The ephemeral-port trap.** If the echoed port is not 2222, a firewall rule
+> written for UDP 2222 does not cover it. Re-run with `--udp-port 2222` — which
+> is the default, and what `EtherNetIpTransport` uses — or allow the *program*
+> rather than a port.
+
 ### Nothing arrives at all
 
 If the tool captures nothing on any port, the robot is not producing to this

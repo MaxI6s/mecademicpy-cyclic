@@ -273,6 +273,21 @@ class EipOriginator:
         self._socket = socket.create_connection((self.address, self.tcp_port), self.timeout_s)
         self._socket.settimeout(self.timeout_s)
 
+    @property
+    def local_address(self) -> Optional[str]:
+        """Local IPv4 address of the TCP connection, or ``None`` before it opens.
+
+        This is the address the target sees this scanner connecting from, and
+        therefore the one it sends its cyclic data to when the socket address
+        item of the Forward Open carries ``0.0.0.0``.
+        """
+        if self._socket is None:
+            return None
+        try:
+            return str(self._socket.getsockname()[0])
+        except OSError:
+            return None
+
     def open_session(self) -> int:
         """Register an encapsulation session.
 
@@ -307,7 +322,10 @@ class EipOriginator:
             input_size: Size of the input assembly, in bytes.
             rpi_microseconds: Requested packet interval, in microseconds.
             originator_udp_port: Port advertised as the one this scanner
-                listens on for the data the target produces.
+                listens on for the data the target produces.  The item carries
+                ``0.0.0.0`` as its address, which is the CIP convention for
+                "send to the address you see me connecting from"; a target
+                echoing it back has accepted the port.
             multicast: Whether to request a multicast target-to-originator
                 connection instead of point to point.
             output_run_idle_header: Whether the produced data carries a 32 bit

@@ -279,8 +279,13 @@ def test_hand_written_originator_opens_a_connection(mock_server: MockRobotServer
         )
         assert reply.accepted is True
         assert reply.to_connection_id != 0
-        # The mock reports where it receives, like a real adapter does.
-        assert reply.socket_addresses
+        assert originator.local_address == HOST
+        # A point-to-point adapter echoes the endpoint it was asked to produce
+        # to, with 0.0.0.0 standing for "the address you connected from".
+        announced = reply.target_to_originator_address
+        assert announced is not None
+        assert announced.address == "0.0.0.0"
+        assert announced.port == int(listener.getsockname()[1])
 
         def produce() -> None:
             sender = socket_module.socket(socket_module.AF_INET, socket_module.SOCK_DGRAM)

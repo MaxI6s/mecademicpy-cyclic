@@ -644,6 +644,11 @@ class MockRobotServer:
             # target reports it, and a scanner may use it instead of assuming
             # the standard port.
             _ITEM_SOCKADDR_ORIGINATOR_TARGET: _build_socket_info(self._host, self.udp_port),
+            # Echo back the endpoint the scanner asked to be produced to, with
+            # 0.0.0.0 standing for "the address you connected from". That is
+            # how a point-to-point target acknowledges the requested port; a
+            # multicast one would answer with the group address instead.
+            _ITEM_SOCKADDR_TARGET_TO_ORIGINATOR: _build_socket_info("0.0.0.0", udp_port),
         }
         return _cip_success(_SERVICE_FORWARD_OPEN, reply)
 
