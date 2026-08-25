@@ -239,3 +239,78 @@ def test_disconnect_closes_the_connection(
     connected_robot.Disconnect()
     wait_until(lambda: mock_server.connection_count == 0, "the connection to be released")
     assert connected_robot.is_connected is False
+
+
+def test_hand_written_originator_opens_a_connection(mock_server: MockRobotServer) -> None:
+    """The diagnostic originator speaks the same CIP as the production stack.
+
+    It is hand-written, so it is exercised against the adapter side of the same
+    exchange: session, Forward Open on the real connection path, cyclic
+    production and consumption, then Forward Close.
+    """
+    import socket as socket_module
+    import threading
+
+    from tools.eip_originator import (
+        EipOriginator,
+        build_output_frame,
+        encode_connection_path,
+        parse_input_frame,
+    )
+
+    io_map = mock_server.simulator.io_map
+    listener = socket_module.socket(socket_module.AF_INET, socket_module.SOCK_DGRAM)
+    listener.setsockopt(socket_module.SOL_SOCKET, socket_module.SO_REUSEADDR, 1)
+    listener.bind(("0.0.0.0", 0))
+    listener.settimeout(2.0)
+
+    originator = EipOriginator(HOST)
+    path = encode_connection_path(io_map.connection.connection_path)
+    stop = threading.Event()
+    producer = None
+    try:
+        originator.open_session()
+        reply = originator.forward_open(
+            path,
+            io_map.output_assembly_size,
+            io_map.input_assembly_size,
+            rpi_microseconds=RPI_MS * 1000,
+            originator_udp_port=int(listener.getsockname()[1]),
+        )
+        assert reply.accepted is True
+        assert reply.to_connection_id != 0
+        # The mock reports where it receives, like a real adapter does.
+        assert reply.socket_addresses
+
+        def produce() -> None:
+            sender = socket_module.socket(socket_module.AF_INET, socket_module.SOCK_DGRAM)
+            sequence = 0
+            while not stop.is_set():
+                sender.sendto(
+                    build_output_frame(
+                        reply.ot_connection_id, sequence, io_map.empty_output_assembly()
+                    ),
+                    (HOST, DEFAULT_UDP_PORT),
+                )
+                sequence += 1
+                time.sleep(RPI_MS / 1000.0)
+            sender.close()
+
+        producer = threading.Thread(target=produce, daemon=True)
+        producer.start()
+
+        datagram, source = listener.recvfrom(4096)
+        parsed = parse_input_frame(datagram, io_map.input_assembly_size)
+        assert parsed is not None
+        connection_id, assembly = parsed
+        assert source[0] == HOST
+        assert connection_id == reply.to_connection_id
+        assert io_map.decode_motion_status(assembly).fifo_space > 0
+
+        assert originator.forward_close(path) is True
+    finally:
+        stop.set()
+        if producer is not None:
+            producer.join(timeout=1.0)
+        originator.close()
+        listener.close()

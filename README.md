@@ -166,6 +166,8 @@ mock_robot/
 tools/
     eds_to_spec.py            regenerates the spec from a vendor EDS
     make_fixtures.py          regenerates the golden test vectors
+    eip_originator.py         dependency-free CIP originator, for diagnosis
+    diagnose_connection.py    finds out why a robot produces nothing
 examples/minimal_session.py   works against the mock and against a real robot
 tests/
     fake_transport.py         in-memory transports for the unit tests
@@ -260,13 +262,65 @@ one receives data settles it:
 | --- | --- | --- |
 | Data on **2222** | The robot ignores the socket address item and produces to the standard port. | Listen on 2222 — the default since `EtherNetIpTransport(..., originator_udp_port=2222)`. An ephemeral port never sees this robot. |
 | Data on the **ephemeral** port | The robot honours the item; the receive path works. | Check what the report flags: usually the source address or the connection id the stack filters on. |
-| **Nothing** on either | The robot is not producing to this host. | A host firewall dropping inbound UDP 2222; a multicast connection nothing joined; or routing, the robot answering on a different interface. |
+| **Nothing** on either | The robot is not producing to this host. | See [Nothing arrives at all](#nothing-arrives-at-all) below. |
 
-Two filters inside the third-party stack drop frames silently, and the tool
-reports both: it only accepts datagrams whose **source IP equals the address you
-connected to** (so connect by IP, not by hostname, and use the address the robot
-answers *from*), and whose **connection id matches** the one returned by the
-Forward Open.
+The tool opens the connection itself, with raw sockets and no third-party stack,
+which buys two things the stack cannot give:
+
+* the **socket address items of the Forward Open reply**, where the target says
+  where it will send — including the group address when the connection is
+  multicast. The stack parses those items and discards them
+  (`ethernetip.py:1801`), which is exactly why a multicast robot looks silent
+  rather than misconfigured;
+* unfiltered listening. Two filters inside the stack drop frames without a word,
+  and the tool reports both: it only accepts datagrams whose **source IP equals
+  the address you connected to** (so connect by IP, not by hostname, and use the
+  address the robot answers *from*), and whose **connection id matches** the one
+  returned by the Forward Open.
+
+### Nothing arrives at all
+
+If the tool captures nothing on any port, the robot is not producing to this
+host. Work through these in order — the first step tells you which half of the
+problem you have.
+
+**1. Is anything reaching the machine?** `tcpdump` sees packets before any
+firewall drops them at the socket layer:
+
+```bash
+sudo tcpdump -n -i any 'udp and (port 2222 or ip multicast)'
+```
+
+Leave it running and start the diagnostic in another terminal.
+
+**2. Packets in `tcpdump` but nothing captured → a host firewall.** On macOS:
+
+```bash
+/usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate
+/usr/libexec/ApplicationFirewall/socketfilterfw --getblockall
+```
+
+If block-all is on, turn it off, or allow the interpreter:
+
+```bash
+sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add $(python -c 'import sys; print(sys.executable)')
+```
+
+Check `pf` too if your organisation enables it (`sudo pfctl -s info`). On Linux,
+`sudo iptables -L -n | grep 2222` or `sudo firewall-cmd --list-all`.
+
+**3. Nothing in `tcpdump` either → the robot is not sending.** In order:
+
+* retry with `--multicast`: some targets only produce to a group when the
+  connection asks for one. If that works, the report names the group;
+* check the robot is really in EtherNet/IP mode, and that **no other scanner
+  already owns** the exclusive-owner connection — a second originator gets a
+  connection that produces nothing, or a monitoring-only one. The facade raises
+  on `RobotStatus_MonitoringMode` for that reason;
+* check the return route. The Forward Open travelled over TCP, so IP works in
+  both directions, but a robot on another subnet with no gateway configured can
+  answer TCP and still fail to send unsolicited UDP. Confirm both ends sit on
+  the same subnet, or that the robot has a gateway.
 
 ### Running a scanner and the simulated robot on one machine
 

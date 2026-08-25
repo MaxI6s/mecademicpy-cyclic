@@ -69,6 +69,7 @@ _ENCAP_STATUS_INVALID_SESSION = 0x0064
 _ITEM_NULL_ADDRESS = 0x0000
 _ITEM_CONNECTED_DATA = 0x00B1
 _ITEM_UNCONNECTED_DATA = 0x00B2
+_ITEM_SOCKADDR_ORIGINATOR_TARGET = 0x8000
 _ITEM_SOCKADDR_TARGET_TO_ORIGINATOR = 0x8001
 _ITEM_SEQUENCED_ADDRESS = 0x8002
 
@@ -187,6 +188,7 @@ class MockRobotServer:
         self._sessions: set = set()
         self._next_session = 1
         self._next_connection_id = 0x20000000
+        self._last_forward_open_items: Dict[int, bytes] = {}
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
         self._running = False
@@ -558,9 +560,10 @@ class MockRobotServer:
             logger.debug("unsupported CIP service 0x%02X", service)
             return None
 
-        return struct.pack("<IH", interface_handle, timeout) + _build_cpf(
-            {_ITEM_NULL_ADDRESS: b"", _ITEM_UNCONNECTED_DATA: reply}
-        )
+        reply_items = {_ITEM_NULL_ADDRESS: b"", _ITEM_UNCONNECTED_DATA: reply}
+        reply_items.update(self._last_forward_open_items)
+        self._last_forward_open_items = {}
+        return struct.pack("<IH", interface_handle, timeout) + _build_cpf(reply_items)
 
     def _handle_forward_open(
         self, body: bytes, socket_info: Optional[bytes], peer_ip: str
@@ -636,6 +639,12 @@ class MockRobotServer:
             0,
             0,
         )
+        self._last_forward_open_items = {
+            # Where this adapter receives the data the scanner produces. A real
+            # target reports it, and a scanner may use it instead of assuming
+            # the standard port.
+            _ITEM_SOCKADDR_ORIGINATOR_TARGET: _build_socket_info(self._host, self.udp_port),
+        }
         return _cip_success(_SERVICE_FORWARD_OPEN, reply)
 
     def _handle_forward_close(self, body: bytes) -> bytes:
@@ -886,6 +895,25 @@ def _parse_socket_info_port(data: Optional[bytes]) -> Optional[int]:
         return None
     _family, port = struct.unpack_from(">HH", data, 0)
     return int(port) or None
+
+
+def _build_socket_info(address: str, port: int) -> bytes:
+    """Build a socket address information item.
+
+    The item is big endian, unlike the rest of CIP.
+
+    Args:
+        address: IPv4 address the item points at.
+        port: UDP port the item points at.
+
+    Returns:
+        The 16 byte item data.
+    """
+    try:
+        packed = socket.inet_aton(address)
+    except OSError:
+        packed = socket.inet_aton("0.0.0.0")
+    return struct.pack(">HH", socket.AF_INET, port) + packed + bytes(8)
 
 
 def _cip_success(service: int, data: bytes) -> bytes:
