@@ -40,6 +40,13 @@ HOST = "127.0.0.1"
 #: Requested packet interval, at the minimum the robot declares.
 RPI_MS = 10
 
+#: The scanner and the simulated robot share this machine, and the robot holds
+#: the standard UDP 2222, so the scanner has to listen on an ephemeral port and
+#: advertise it in the Forward Open.  That only works against a target that
+#: honours the T->O socket address item -- the mock does, a real robot may not,
+#: which is why the transport defaults to 2222 instead.
+SCANNER_UDP_PORT = 0
+
 
 def port_is_free(kind: int, port: int) -> bool:
     """Check whether a port can be bound on the loopback interface.
@@ -109,7 +116,9 @@ def mock_server(demo_io_map: IoMap) -> MockRobotServer:
 @pytest.fixture
 def connected_robot(mock_server: MockRobotServer, demo_io_map: IoMap) -> FieldbusRobot:
     """Return a facade connected to the simulated robot over EtherNet/IP."""
-    transport = EtherNetIpTransport.from_io_map(demo_io_map, rpi_ms=RPI_MS)
+    transport = EtherNetIpTransport.from_io_map(
+        demo_io_map, rpi_ms=RPI_MS, originator_udp_port=SCANNER_UDP_PORT
+    )
     robot = FieldbusRobot(transport, demo_io_map, default_timeout_s=10.0)
     robot.Connect(HOST)
     try:
@@ -133,7 +142,7 @@ def test_forward_open_succeeds(
 def test_connect_fails_when_nothing_listens(demo_io_map: IoMap) -> None:
     """Connecting to a closed port raises a connection error, not a crash."""
     require_standard_ports()
-    transport = EtherNetIpTransport.from_io_map(demo_io_map)
+    transport = EtherNetIpTransport.from_io_map(demo_io_map, originator_udp_port=SCANNER_UDP_PORT)
     with pytest.raises(FieldbusConnectionError):
         transport.connect(HOST)
     assert transport.is_connected is False
@@ -148,6 +157,7 @@ def test_forward_open_is_rejected_on_a_mismatched_assembly(
         input_instance=demo_io_map.input_assembly_instance + 1,
         output_instance=demo_io_map.output_assembly_instance + 1,
         rpi_ms=RPI_MS,
+        originator_udp_port=SCANNER_UDP_PORT,
     )
     with pytest.raises(FieldbusConnectionError) as error:
         transport.connect(HOST)
@@ -164,7 +174,10 @@ def test_forward_open_is_rejected_on_a_mismatched_size(
     cannot open a connection at all.
     """
     transport = EtherNetIpTransport.from_io_map(
-        demo_io_map, input_size=demo_io_map.input_assembly_size - 4, rpi_ms=RPI_MS
+        demo_io_map,
+        input_size=demo_io_map.input_assembly_size - 4,
+        rpi_ms=RPI_MS,
+        originator_udp_port=SCANNER_UDP_PORT,
     )
     with pytest.raises(FieldbusConnectionError):
         transport.connect(HOST)

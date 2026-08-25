@@ -237,6 +237,50 @@ Three levels:
   the mock robot over real sockets, with the real connection path and sizes.
   Needs TCP 44818 and UDP 2222 free; skipped otherwise.
 
+## Troubleshooting
+
+### The robot reacts to commands but the scanner sees nothing back
+
+The output direction works, the input one does not: the robot logs the commands,
+while `GetStatusRobot()` keeps returning an all-zero image and `ActivateRobot()`
+times out waiting for a bit the robot has already set.
+
+Run:
+
+```bash
+python tools/diagnose_connection.py --address 192.168.0.100
+```
+
+It opens the connection normally, then listens on **two** ports at once with its
+own sockets and no filtering: the standard UDP 2222, and an ephemeral one which
+is what it advertises in the T→O socket address item of the Forward Open. Which
+one receives data settles it:
+
+| Result | Cause | Fix |
+| --- | --- | --- |
+| Data on **2222** | The robot ignores the socket address item and produces to the standard port. | Listen on 2222 — the default since `EtherNetIpTransport(..., originator_udp_port=2222)`. An ephemeral port never sees this robot. |
+| Data on the **ephemeral** port | The robot honours the item; the receive path works. | Check what the report flags: usually the source address or the connection id the stack filters on. |
+| **Nothing** on either | The robot is not producing to this host. | A host firewall dropping inbound UDP 2222; a multicast connection nothing joined; or routing, the robot answering on a different interface. |
+
+Two filters inside the third-party stack drop frames silently, and the tool
+reports both: it only accepts datagrams whose **source IP equals the address you
+connected to** (so connect by IP, not by hostname, and use the address the robot
+answers *from*), and whose **connection id matches** the one returned by the
+Forward Open.
+
+### Running a scanner and the simulated robot on one machine
+
+They cannot both hold UDP 2222. Give the scanner an ephemeral port and let the
+Forward Open advertise it — which is what `examples/minimal_session.py --mock`
+and the integration tests do:
+
+```python
+EtherNetIpTransport.from_io_map(io_map, originator_udp_port=0)
+```
+
+This only works because the mock honours the socket address item. Never use it
+against hardware that has not been checked with the tool above.
+
 ## Open decisions
 
 Everything below is marked `# TODO` in the code:
@@ -247,7 +291,7 @@ Everything below is marked `# TODO` in the code:
 | **Error codes** | Same story: `RobotStatus_Error` is documented as "refer to the programming manual". The simulator invents codes in the 32000s to stay inside the field. |
 | **Digital I/O** | The cyclic assemblies carry none, so `SetOutputState`/`GetRtOutputState` raise `FieldbusUnsupportedFeature`. On this robot they are reachable through the four `DynamicData` slots — whose type codes are, again, manual-only — or through the text API. |
 | **Dynamic data slots** | `DynamicTypeCfg0..3` select what the robot publishes in `DynamicData0..3`. Present in the spec, not yet surfaced in the facade. |
-| **Socket address item** | Confirm the robot honours the T→O socket address item of the Forward Open; if not, the scanner must listen on UDP 2222 (`originator_udp_port`). |
+| **Socket address item** | Whether the robot honours the T→O socket address item is still unconfirmed on hardware; the scanner listens on 2222 by default so that it does not matter. See [Troubleshooting](#troubleshooting). |
 | **Connection watchdog** | The mock does not drop the connection when the scanner stops producing, and never sets `StopMask_ConnectionDropped`. |
 | **Joint limits** | The simulator applies a flat ±175°; the real per-joint limits are in the manual. |
 | **`mock_robot` package name** | Too generic a top-level name to publish as-is. |

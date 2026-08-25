@@ -682,7 +682,11 @@ class FieldbusRobot:
                 return
             if time.monotonic() >= deadline:
                 raise FieldbusTimeoutError(
-                    "no cyclic data received from the robot within {:.1f} s; check that it "
-                    "runs in fieldbus mode and that the connection was accepted".format(timeout_s)
+                    "no cyclic data received from the robot within {:.1f} s. The connection "
+                    "was accepted, so the robot is very likely producing to somewhere this "
+                    "scanner is not listening: check the UDP port the transport listens on "
+                    "(the standard 2222 unless overridden), a host firewall dropping inbound "
+                    "UDP, and that the robot answers from the address used to connect. "
+                    "tools/diagnose_connection.py tells these apart.".format(timeout_s)
                 )
             time.sleep(self._poll_interval_s)

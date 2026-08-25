@@ -35,7 +35,14 @@ from typing import Dict, List, Optional, Tuple, Type
 
 from .simulator import RobotSimulator
 
-__all__ = ["MockRobotServer", "DEFAULT_TCP_PORT", "DEFAULT_UDP_PORT"]
+__all__ = [
+    "MockRobotServer",
+    "DEFAULT_TCP_PORT",
+    "DEFAULT_UDP_PORT",
+    "build_cyclic_frame",
+    "parse_cyclic_frame",
+    "strip_run_idle_header",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -394,7 +401,7 @@ class MockRobotServer:
             except OSError:
                 break
             try:
-                connection_id, payload = _parse_cyclic_frame(datagram)
+                connection_id, payload = parse_cyclic_frame(datagram)
             except ValueError as exc:
                 logger.debug("ignoring malformed cyclic frame: %s", exc)
                 continue
@@ -406,7 +413,7 @@ class MockRobotServer:
             if not known:
                 logger.debug("ignoring cyclic frame for unknown connection 0x%08X", connection_id)
                 continue
-            assembly = _strip_run_idle_header(payload, self._io_map.output_assembly_size)
+            assembly = strip_run_idle_header(payload, self._io_map.output_assembly_size)
             if assembly is None:
                 logger.warning(
                     "ignoring cyclic frame of %d bytes, expected %d",
@@ -446,7 +453,7 @@ class MockRobotServer:
             connection: Connection to produce to.
             assembly: Raw input assembly image.
         """
-        frame = _build_cyclic_frame(connection.to_connection_id, connection.sequence, assembly)
+        frame = build_cyclic_frame(connection.to_connection_id, connection.sequence, assembly)
         connection.sequence = (connection.sequence + 1) & 0xFFFFFFFF
         try:
             self._udp_socket.sendto(frame, connection.peer_address)  # type: ignore[union-attr]
@@ -912,7 +919,7 @@ def _cip_error(service: int, extended_status: int) -> bytes:
 # ----------------------------------------------------------------------
 # Cyclic (Class 1) frame helpers
 # ----------------------------------------------------------------------
-def _build_cyclic_frame(connection_id: int, sequence: int, assembly: bytes) -> bytes:
+def build_cyclic_frame(connection_id: int, sequence: int, assembly: bytes) -> bytes:
     """Build one target-to-originator cyclic frame.
 
     Args:
@@ -932,7 +939,7 @@ def _build_cyclic_frame(connection_id: int, sequence: int, assembly: bytes) -> b
     )
 
 
-def _parse_cyclic_frame(datagram: bytes) -> Tuple[int, bytes]:
+def parse_cyclic_frame(datagram: bytes) -> Tuple[int, bytes]:
     """Parse one originator-to-target cyclic frame.
 
     Args:
@@ -956,7 +963,7 @@ def _parse_cyclic_frame(datagram: bytes) -> Tuple[int, bytes]:
     return connection_id, data[_SEQUENCE_COUNT_SIZE:]
 
 
-def _strip_run_idle_header(payload: bytes, expected_size: int) -> Optional[bytes]:
+def strip_run_idle_header(payload: bytes, expected_size: int) -> Optional[bytes]:
     """Remove the optional run/idle header of an output assembly image.
 
     Whether the header is present depends on the connection type negotiated at

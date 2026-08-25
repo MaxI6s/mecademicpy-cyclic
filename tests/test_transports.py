@@ -84,3 +84,27 @@ def test_transport_repr_reports_the_connection_state(io_map: IoMap) -> None:
     """The representation is useful in a debugger."""
     transport = FakeTransport(io_map.input_assembly_size, io_map.output_assembly_size)
     assert "connected=False" in repr(transport)
+
+
+def test_scanner_listens_on_the_standard_udp_port_by_default(io_map: IoMap) -> None:
+    """A target that ignores the T->O socket address item still reaches us.
+
+    Many firmwares produce to the standard port whatever the Forward Open
+    advertises, so binding an ephemeral port by default would silently break
+    the receive path against real hardware.
+    """
+    transport = ethernetip_transport.EtherNetIpTransport.from_io_map(io_map)
+    assert ethernetip_transport.DEFAULT_ORIGINATOR_UDP_PORT == 2222
+    assert transport.originator_udp_port == 2222
+
+
+def test_transport_takes_its_geometry_from_the_io_map(io_map: IoMap) -> None:
+    """``from_io_map`` wires the instances, sizes and RPI from the spec."""
+    transport = ethernetip_transport.EtherNetIpTransport.from_io_map(io_map)
+    assert transport._input_size == io_map.input_assembly_size
+    assert transport._output_size == io_map.output_assembly_size
+    assert transport._input_instance == io_map.input_assembly_instance
+    assert transport._output_instance == io_map.output_assembly_instance
+    # The Meca500 connection path carries no configuration assembly.
+    assert transport._config_instance is None
+    assert transport._rpi_ms == io_map.connection.rpi_microseconds_default // 1000

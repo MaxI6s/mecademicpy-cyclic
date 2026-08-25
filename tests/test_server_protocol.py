@@ -13,13 +13,13 @@ import pytest
 
 from mock_robot.server import (
     _build_cpf,
-    _build_cyclic_frame,
     _parse_connection_path,
     _parse_cpf,
-    _parse_cyclic_frame,
     _parse_socket_info_port,
     _strip_request_path,
-    _strip_run_idle_header,
+    build_cyclic_frame,
+    parse_cyclic_frame,
+    strip_run_idle_header,
 )
 
 #: Item type of a connected data item.
@@ -50,8 +50,8 @@ def build_scanner_frame(connection_id: int, sequence: int, payload: bytes) -> by
 def test_cyclic_frame_round_trip() -> None:
     """A frame this server produces can be parsed back by the same rules."""
     assembly = bytes(range(64))
-    frame = _build_cyclic_frame(0x12345678, 9, assembly)
-    connection_id, payload = _parse_cyclic_frame(frame)
+    frame = build_cyclic_frame(0x12345678, 9, assembly)
+    connection_id, payload = parse_cyclic_frame(frame)
     assert connection_id == 0x12345678
     assert payload == assembly
 
@@ -60,25 +60,25 @@ def test_parse_scanner_frame() -> None:
     """A frame produced by a scanner is parsed down to its assembly image."""
     assembly = bytes([0xAA]) * 64
     payload = struct.pack("<H", 3) + b"\x01\x00\x00\x00" + assembly
-    connection_id, parsed = _parse_cyclic_frame(build_scanner_frame(0xDEADBEEF, 3, payload))
+    connection_id, parsed = parse_cyclic_frame(build_scanner_frame(0xDEADBEEF, 3, payload))
     assert connection_id == 0xDEADBEEF
-    assert _strip_run_idle_header(parsed, 64) == assembly
+    assert strip_run_idle_header(parsed, 64) == assembly
 
 
-def test_parse_cyclic_frame_rejects_garbage() -> None:
+def testparse_cyclic_frame_rejects_garbage() -> None:
     """A datagram that is not a cyclic frame is rejected, not misread."""
     with pytest.raises(ValueError):
-        _parse_cyclic_frame(b"\x00")
+        parse_cyclic_frame(b"\x00")
     with pytest.raises(ValueError):
-        _parse_cyclic_frame(_build_cpf({0x0000: b""}))
+        parse_cyclic_frame(_build_cpf({0x0000: b""}))
 
 
-def test_strip_run_idle_header_handles_both_layouts() -> None:
+def teststrip_run_idle_header_handles_both_layouts() -> None:
     """The run/idle header is optional and told apart by the payload size."""
     assembly = bytes(8)
-    assert _strip_run_idle_header(assembly, 8) == assembly
-    assert _strip_run_idle_header(b"\x01\x00\x00\x00" + assembly, 8) == assembly
-    assert _strip_run_idle_header(bytes(5), 8) is None
+    assert strip_run_idle_header(assembly, 8) == assembly
+    assert strip_run_idle_header(b"\x01\x00\x00\x00" + assembly, 8) == assembly
+    assert strip_run_idle_header(bytes(5), 8) is None
 
 
 def test_cpf_round_trip() -> None:

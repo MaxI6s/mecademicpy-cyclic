@@ -16,9 +16,11 @@ connection path carries no configuration assembly, the scanner prepends a
 32 bit run/idle header to the data it produces, and the robot produces
 modeless data in return.  The stack used here matches that natively.
 
-TODO: confirm against real hardware whether the robot honours the T->O socket
-address item of the Forward Open request; if it does not, the scanner has to
-listen on UDP 2222 and ``originator_udp_port`` must be set accordingly.
+If the robot appears to accept commands while never producing anything back,
+see the troubleshooting section of the README: the usual causes are the
+scanner listening on the wrong UDP port, a host firewall dropping inbound UDP
+2222, or an address the robot answers from under a different IP than the one
+used to connect.  ``tools/diagnose_connection.py`` tells the three apart.
 """
 
 import socket
@@ -38,6 +40,13 @@ except ImportError:  # pragma: no cover
     _ethernetip = None
 
 __all__ = ["EtherNetIpTransport", "DEFAULT_RPI_MS"]
+
+#: Standard EtherNet/IP implicit I/O port.  A scanner listens here for the data
+#: the robot produces, and this is where a target sends it when it ignores the
+#: T->O socket address item of the Forward Open request -- which many firmwares
+#: do.  Binding it is therefore the safe default: a target that honours the item
+#: is told to use this very port anyway.
+DEFAULT_ORIGINATOR_UDP_PORT = 2222
 
 #: Default requested packet interval, in milliseconds, for both directions.
 #: The Meca500 EDS declares 10 ms as both its minimum and its recommended
@@ -79,11 +88,11 @@ class EtherNetIpTransport(FieldbusTransport):
             milliseconds.  The robot rejects anything below its declared
             minimum.
         originator_udp_port: UDP port this scanner listens on for the cyclic
-            data produced by the robot.  ``0`` picks a free port and advertises
-            it in the Forward Open request, which is what allows a scanner and
-            a simulated robot to run on the same machine.  TODO: check whether
-            the robot firmware honours the T->O socket address item; if it does
-            not, force this to 2222.
+            data produced by the robot.  Defaults to the standard 2222, which
+            works whether or not the robot honours the T->O socket address item
+            of the Forward Open request.  Pass ``0`` to bind a free port
+            instead -- only useful to run a scanner and a simulated robot on the
+            same machine, and only safe against a target that honours the item.
         settle_time_s: Time to wait after the Forward Open for the first cyclic
             frames to arrive.  Defaults to a few RPI periods.  TODO: replace
             with a proper "first frame received" event once the stack exposes
@@ -101,7 +110,7 @@ class EtherNetIpTransport(FieldbusTransport):
         input_size: int,
         output_size: int,
         rpi_ms: int = DEFAULT_RPI_MS,
-        originator_udp_port: int = 0,
+        originator_udp_port: int = DEFAULT_ORIGINATOR_UDP_PORT,
         settle_time_s: Optional[float] = None,
     ) -> None:
         if _ethernetip is None:
@@ -230,6 +239,17 @@ class EtherNetIpTransport(FieldbusTransport):
     def is_connected(self) -> bool:
         """Whether the Class 1 connection is currently established."""
         return self._connection is not None and self._input_bits is not None
+
+    @property
+    def originator_udp_port(self) -> int:
+        """UDP port this scanner listens on for the data the robot produces.
+
+        Before connecting this is the requested port, which may be ``0``; once
+        connected it is the port actually bound and advertised to the robot.
+        """
+        if self._enip is None:
+            return self._originator_udp_port
+        return int(self._enip.originator_udp_port)
 
     # ------------------------------------------------------------------
     # Cyclic data

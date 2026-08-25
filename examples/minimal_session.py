@@ -15,12 +15,19 @@ Against a real Meca500 already switched to EtherNet/IP mode::
 Switching the robot into fieldbus mode is out of scope for this library: do it
 with the robot web interface or your own tooling first.
 
-About ``--mock``: the motion command identifiers are the one part of the
-protocol the vendor files do not publish, so the library ships none.  The
-simulator defines its own synthetic ones, and ``--mock`` tells the scanner to
-use those so the demonstration move can run.  Against a real robot, fill the
-identifiers from the programming manual into the ``motion_commands.ids``
-section of ``mecademic_fieldbus/io_map/spec/assembly_v1.json``.
+``--mock`` does two things, both of which only make sense against the local
+simulator:
+
+* it loads the synthetic motion command identifiers the simulator understands,
+  since the vendor files publish none and the library therefore ships none.
+  Against a real robot, fill the real ones from the programming manual into the
+  ``motion_commands.ids`` section of
+  ``mecademic_fieldbus/io_map/spec/assembly_v1.json``;
+* it makes the scanner listen on an ephemeral UDP port instead of the standard
+  2222, because the simulated robot already holds 2222 on this machine.  That
+  only works against a target that honours the T->O socket address item of the
+  Forward Open request; a real robot may ignore it, which is why 2222 is the
+  default everywhere else.
 """
 
 import argparse
@@ -67,7 +74,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--mock",
         action="store_true",
-        help="use the synthetic motion command ids of mock_robot, so the move can run",
+        help="target the local simulator: synthetic motion command ids, ephemeral UDP port",
+    )
+    parser.add_argument(
+        "--udp-port",
+        type=int,
+        default=None,
+        help="UDP port to listen on for the robot data (default: 2222, the standard one)",
     )
     parser.add_argument(
         "--no-move",
@@ -83,7 +96,9 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def build_robot(address: str, rpi_ms: Optional[int], mock: bool) -> FieldbusRobot:
+def build_robot(
+    address: str, rpi_ms: Optional[int], mock: bool, udp_port: Optional[int]
+) -> FieldbusRobot:
     """Assemble the three layers of the library into a ready to use facade.
 
     The transport is built from the I/O map, so the assembly instances, sizes
@@ -93,7 +108,8 @@ def build_robot(address: str, rpi_ms: Optional[int], mock: bool) -> FieldbusRobo
     Args:
         address: IPv4 address of the robot, used only for logging here.
         rpi_ms: Requested packet interval, or ``None`` for the robot default.
-        mock: Whether to load the synthetic motion command identifiers.
+        mock: Whether the target is the local simulator.
+        udp_port: Port to listen on, or ``None`` to let ``--mock`` decide.
 
     Returns:
         A facade that is not connected yet.
@@ -105,9 +121,23 @@ def build_robot(address: str, rpi_ms: Optional[int], mock: bool) -> FieldbusRobo
     else:
         io_map = get_io_map()
 
-    overrides = {} if rpi_ms is None else {"rpi_ms": rpi_ms}
+    overrides = {}
+    if rpi_ms is not None:
+        overrides["rpi_ms"] = rpi_ms
+    if udp_port is not None:
+        overrides["originator_udp_port"] = udp_port
+    elif mock:
+        # The simulated robot already holds the standard port on this machine.
+        overrides["originator_udp_port"] = 0
+
     transport = EtherNetIpTransport.from_io_map(io_map, **overrides)
-    print("driving {} with I/O map version {}".format(address, io_map.version))
+    print(
+        "driving {} with I/O map version {}, listening on UDP {}".format(
+            address,
+            io_map.version,
+            transport.originator_udp_port or "an ephemeral port",
+        )
+    )
     return FieldbusRobot(transport, io_map)
 
 
@@ -177,7 +207,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.verbose:
         logging.basicConfig(level=logging.DEBUG, format="%(levelname)-7s %(name)s: %(message)s")
 
-    robot = build_robot(args.address, args.rpi, args.mock)
+    robot = build_robot(args.address, args.rpi, args.mock, args.udp_port)
     started = time.monotonic()
     try:
         run_session(robot, args.address, move=not args.no_move)
