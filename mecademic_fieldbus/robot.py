@@ -44,6 +44,7 @@ from .robot_classes import (
     RobotPosition,
     RobotSafetyStatus,
     RobotStatus,
+    RobotTimestamp,
 )
 from .transports.base import FieldbusTransport
 
@@ -325,6 +326,20 @@ class FieldbusRobot:
             FieldbusConnectionError: If the transport is not connected.
         """
         return self._io_map.decode_safety_status(self._transport.read_input_assembly())
+
+    def GetTimestamp(self) -> RobotTimestamp:
+        """Return the free-running counters of the latest cyclic frame.
+
+        Comparing two of these a few cycles apart is the surest way to tell a
+        live connection from a stale process image.
+
+        Returns:
+            The counters decoded from the latest input assembly.
+
+        Raises:
+            FieldbusConnectionError: If the transport is not connected.
+        """
+        return self._io_map.decode_timestamp(self._transport.read_input_assembly())
 
     def GetRobotPosition(self) -> RobotPosition:
         """Return the current joint angles and end effector pose.

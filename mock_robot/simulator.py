@@ -37,6 +37,7 @@ from mecademic_fieldbus.robot_classes import (
     RobotPosition,
     RobotSafetyStatus,
     RobotStatus,
+    RobotTimestamp,
     SafetyStopFlags,
 )
 
@@ -48,10 +49,24 @@ __all__ = [
     "DEFAULT_FIFO_SPACE",
 ]
 
-#: Commands this simulator actually executes.  The specification lists every
-#: identifier the robot accepts; modelling them all is not the point of a mock,
-#: so anything else is reported as an unknown command.
-SUPPORTED_COMMANDS = frozenset({"MoveJoints", "MovePose", "MoveJointsVel"})
+#: Commands this simulator actually executes.  Every identifier the
+#: specification declares is *accepted and acknowledged*, like a real robot;
+#: only these few have a modelled effect.  An identifier that is in no
+#: specification at all is still reported as unknown.
+SUPPORTED_COMMANDS = frozenset(
+    {
+        "MoveJoints",
+        "MoveJointsRel",
+        "MovePose",
+        "MoveLin",
+        "MoveLinRelTrf",
+        "MoveLinRelWrf",
+        "MoveJointsVel",
+        "Delay",
+        "SetCheckpoint",
+        "SetJointVel",
+    }
+)
 
 #: Motion queue capacity the simulator advertises, matching the maximum the
 #: EDS declares for ``MotionStatus_FIFOSpace``.
@@ -145,14 +160,11 @@ class RobotSimulator:
         self._clock = clock
         self._lock = threading.RLock()
 
-        declared = (
+        self._command_ids = (
             dict(motion_command_ids)
             if motion_command_ids is not None
             else io_map.motion_command_ids
         )
-        self._command_ids = {
-            name: value for name, value in declared.items() if name in SUPPORTED_COMMANDS
-        }
         self._command_names = {value: name for name, value in self._command_ids.items()}
 
         self._home_position = (
@@ -182,6 +194,10 @@ class RobotSimulator:
         self._previous_resume_motion = False
         self._last_advance: Optional[float] = None
         self._joint_velocity: Optional[Tuple[float, ...]] = None
+        self._dynamic_data_cycles = 0
+        self._clock_offset_s = 0.0
+        self._reached_checkpoint = 0
+        self._velocity_percent = 100.0
 
     # ------------------------------------------------------------------
     # Introspection
@@ -217,6 +233,18 @@ class RobotSimulator:
     # ------------------------------------------------------------------
     # Cyclic interface, as seen from the fieldbus
     # ------------------------------------------------------------------
+    def synchronise_clock(self, host_time_s: int) -> None:
+        """Adopt the host clock, the way ``HostTime`` does on a real robot.
+
+        Args:
+            host_time_s: Seconds since the UNIX epoch, ``0`` to leave the clock
+                alone.
+        """
+        if host_time_s <= 0:
+            return
+        with self._lock:
+            self._clock_offset_s = host_time_s - self._clock()
+
     def apply_output_assembly(self, raw_output: bytes, now: Optional[float] = None) -> None:
         """Consume one output assembly image and update the internal state.
 
@@ -254,6 +282,7 @@ class RobotSimulator:
             raw = self._io_map.encode_motion_status(self.get_motion_status(), raw)
             raw = self._io_map.encode_safety_status(self.get_safety_status(), raw)
             raw = self._io_map.encode_position(self.get_position(), raw)
+            raw = self._io_map.encode_timestamp(self.get_timestamp(), raw)
             return raw
 
     def update(self, now: Optional[float] = None) -> None:
@@ -313,7 +342,7 @@ class RobotSimulator:
                 end_of_movement=not moving,
                 cleared=self._cleared,
                 excessive_torque=False,
-                reached_checkpoint_id=0,
+                reached_checkpoint_id=self._reached_checkpoint,
                 discarded_checkpoint_id=0,
                 move_id=self._received_move_id,
                 fifo_space=DEFAULT_FIFO_SPACE - (1 if moving else 0),
@@ -341,6 +370,26 @@ class RobotSimulator:
                 resettable_stops=SafetyStopFlags(),
                 reset_ready=False,
                 motor_voltage_on=activated,
+            )
+
+    def get_timestamp(self) -> RobotTimestamp:
+        """Return the free-running counters, and advance the cycle count.
+
+        A real robot publishes a clock and a dynamic data cycle count that
+        change on every frame, which is what proves to a scanner that the
+        connection is live.  The simulator does the same, so that a scanner
+        cannot tell a stale process image from a fresh one here either.
+
+        Returns:
+            The counters to publish in the input assembly.
+        """
+        with self._lock:
+            self._dynamic_data_cycles = (self._dynamic_data_cycles + 1) & 0x7FFFFFFF
+            now = self._clock() + self._clock_offset_s
+            return RobotTimestamp(
+                seconds=int(now),
+                microseconds=int((now - int(now)) * 1000000),
+                dynamic_data_cycles=self._dynamic_data_cycles,
             )
 
     def get_position(self) -> RobotPosition:
@@ -507,6 +556,22 @@ class RobotSimulator:
             self._enter_error(SimulatorErrorCode.MOVE_WITHOUT_HOMING)
             return
 
+        if name in ("SetCheckpoint", "SetJointVel"):
+            # Accepted and acknowledged without moving, like the real robot.
+            self._apply_configuration_command(name, command)
+            return
+        if name == "Delay":
+            # Holds the queue without moving: the same machinery as a move,
+            # with the current position as its target.
+            self._start_hold(now, float(command.arguments[0]))
+            return
+        if name not in SUPPORTED_COMMANDS:
+            # A real robot accepts every identifier in the table. The
+            # acknowledgement is already recorded above; the effect is simply
+            # not modelled, which keeps the mock a faithful rehearsal target
+            # for a scanner without pretending to be a robot.
+            return
+
         try:
             target = self._resolve_target(name, command)
         except ValueError:
@@ -514,14 +579,41 @@ class RobotSimulator:
             return
 
         distance = max(abs(target[index] - self._joints[index]) for index in range(JOINT_COUNT))
+        speed = self._joint_speed_deg_s * self._velocity_percent / 100.0
         self._state = SimulatorState.MOVING
         self._cleared = False
         self._move_start_time = now
-        self._move_end_time = now + (
-            distance / self._joint_speed_deg_s if self._joint_speed_deg_s > 0 else 0.0
-        )
+        self._move_end_time = now + (distance / speed if speed > 0 else 0.0)
         self._move_start_joints = self._joints
         self._move_target_joints = target
+
+    def _start_hold(self, now: float, duration_s: float) -> None:
+        """Keep the robot busy for a while without moving it.
+
+        Args:
+            now: Current time.
+            duration_s: How long to hold the motion queue.
+        """
+        self._state = SimulatorState.MOVING
+        self._cleared = False
+        self._move_start_time = now
+        self._move_end_time = now + max(duration_s, 0.0)
+        self._move_start_joints = self._joints
+        self._move_target_joints = self._joints
+
+    def _apply_configuration_command(self, name: str, command: MotionCommand) -> None:
+        """Apply one of the non-moving commands the simulator models.
+
+        Args:
+            name: Name the command identifier is registered under.
+            command: Motion command decoded from the output assembly.
+        """
+        if name == "SetCheckpoint":
+            # The real robot reports a checkpoint once the motion queue has
+            # drained down to it; with no queue to drain, that is immediately.
+            self._reached_checkpoint = int(command.arguments[0]) & 0xFFFF
+        elif name == "SetJointVel":
+            self._velocity_percent = min(max(float(command.arguments[0]), 1.0), 100.0)
 
     def _release_velocity(self) -> None:
         """Stop holding a velocity-mode command, and settle the state machine.
@@ -548,10 +640,13 @@ class RobotSimulator:
         if self._state is SimulatorState.ERROR:
             return
         name = self._command_names.get(command.command_id)
-        if name != "MoveJointsVel":
-            # Either unknown, or a Cartesian velocity command this simulator
-            # does not model. TODO: model MoveLinVelWrf and MoveLinVelTrf.
+        if name is None:
             self._enter_error(SimulatorErrorCode.UNKNOWN_MOTION_COMMAND)
+            return
+        if name != "MoveJointsVel":
+            # A declared Cartesian velocity command: accepted, but its effect
+            # is not modelled. TODO: model MoveLinVelWrf and MoveLinVelTrf.
+            self._joint_velocity = None
             return
         if self._state not in (SimulatorState.IDLE, SimulatorState.MOVING):
             self._enter_error(SimulatorErrorCode.MOVE_WITHOUT_HOMING)
@@ -586,8 +681,25 @@ class RobotSimulator:
         """
         if name == "MoveJoints":
             target = tuple(float(value) for value in command.arguments[:JOINT_COUNT])
-        elif name == "MovePose":
+        elif name == "MoveJointsRel":
+            target = tuple(
+                angle + float(delta)
+                for angle, delta in zip(self._joints, command.arguments[:JOINT_COUNT])
+            )
+        elif name in ("MovePose", "MoveLin"):
+            # The mock draws no distinction between a joint-interpolated and a
+            # linear path: it only models where the move ends.
             target = self._fake_inverse_kinematics(command.arguments[:POSE_COUNT])
+        elif name in ("MoveLinRelTrf", "MoveLinRelWrf"):
+            # With placeholder kinematics that are elementwise, a displacement
+            # in the tool frame and one in the world frame coincide.
+            current = self._fake_forward_kinematics(self._joints)
+            target = self._fake_inverse_kinematics(
+                tuple(
+                    coordinate + float(delta)
+                    for coordinate, delta in zip(current, command.arguments[:POSE_COUNT])
+                )
+            )
         else:
             raise ValueError("the simulator cannot execute command {!r}".format(name))
         lower, upper = self._joint_limits_deg

@@ -250,7 +250,7 @@ pytest -m "not integration"  # unit tests only, no sockets
 pytest -m integration        # the real stack against the mock robot
 ```
 
-Three levels:
+Four levels:
 
 * **Unit** — `FakeTransport` feeds byte fixtures in memory; `SimulatorTransport`
   wires the facade straight to the simulator with no network at all.
@@ -261,6 +261,86 @@ Three levels:
 * **Integration** — the real `EtherNetIpTransport` opens a Class 1 connection to
   the mock robot over real sockets, with the real connection path and sizes.
   Needs TCP 44818 and UDP 2222 free; skipped otherwise.
+* **Hardware** — the acceptance suite, against a real robot. Skipped unless you
+  give it an address; see below.
+
+### Against a real robot
+
+`tests/test_hardware.py` is the only suite that touches hardware, and it has two
+tiers with separate opt-ins:
+
+```bash
+# Tier 1 — reads, activates, deactivates. Does not move the robot.
+pytest tests/test_hardware.py --robot-address 192.168.0.100
+```
+
+```bash
+# Tier 2 — adds homing and motion. Read the preconditions in the file first.
+pytest tests/test_hardware.py --robot-address 192.168.0.100 --allow-motion
+```
+
+Tier 2 homes the robot and moves **one joint** by a small amount — by default
+the last one, whose rotation displaces the tool least — returning it to where it
+started. Nothing moves in Cartesian space, and nothing moves further than
+`--motion-amplitude` (default 5°) from the position the suite measured.
+`--motion-joint` picks a different one. Teardown always releases any held
+velocity command, clears the queue, resets a pending error and deactivates.
+
+What it is really for: proving that the specification generated from *your*
+firmware's EDS matches the robot in front of you. A wrong offset surfaces as an
+implausible decoded value — a queue capacity outside 1..13000, a joint angle
+past 400°, a resettable stop that is not asserted — rather than as a robot doing
+something unexpected. `test_checkpoint_round_trips_through_the_assemblies` is
+the centrepiece: `SetCheckpoint` travels the whole output path and comes back
+through the input assembly, proving the command handshake end to end **without
+moving an axis**.
+
+### Command coverage
+
+`tests/test_hardware_commands.py` exercises the 48 command identifiers. They are
+not equally safe to send — one changes joint limits, one reboots the robot,
+several drive a gripper that may be holding something — so every identifier is
+triaged in `tests/command_groups.py`, with the reason, and the risky groups need
+their own opt-in:
+
+| Group | Enabled by | Contents |
+| --- | --- | --- |
+| harmless | *(default)* | `SetCheckpoint`, `Delay` — no lasting effect |
+| configuration | `--allow-config` | velocities, accelerations, blending, auto-conf; restored to documented defaults afterwards |
+| joint motion | `--allow-motion` | `MoveJoints`, `MoveJointsRel`, `MoveJointsVel` |
+| Cartesian motion | `--allow-cartesian` | `MovePose`, `MoveLin`, the relative and velocity variants |
+| tool | `--allow-tool` | gripper and valve commands |
+| needs deliberate setup | *never* | frames, payload, torque limits, tool sphere, collision config — values a human must choose for the cell |
+| never sent | *never* | `RebootRobot`, `ClearRobotHoming`, `StartProgram`, joint limits, work zone, calibration |
+
+`test_command_groups.py` runs in the ordinary suite, without a robot, and fails
+if any declared identifier is untriaged, claimed by two groups, or invented. So
+when a firmware update adds a command, the suite tells you rather than silently
+ignoring it.
+
+**What "tested" means.** The robot *accepts* the command and acknowledges its
+move id — which catches a wrong identifier, a wrong argument count, and a
+command the firmware rejects. It does not confirm the *effect* of a setting,
+because the input assembly carries no settings back; that needs the dynamic data
+slots, which this library does not surface yet. Where an effect *is* observable
+with what the assembly carries, there is a dedicated test for it:
+`SetCheckpoint` comes back as `CheckpointReached`, `Delay` holds the queue
+without moving an axis, the move commands are checked against the reported
+position, and `SetJointVel` is verified by timing the same move at two
+velocities.
+
+Rehearse it against the simulator before pointing it at hardware — the mock
+answers the same protocol, so the suite's own logic gets validated for free:
+
+```bash
+python -m mock_robot
+```
+
+```bash
+pytest tests/test_hardware.py tests/test_hardware_commands.py \
+    --robot-address 127.0.0.1 --robot-udp-port 0 \
+    --allow-motion --allow-config --allow-cartesian --allow-tool
+```
 
 ## Troubleshooting
 
@@ -387,7 +467,8 @@ Everything below is marked `# TODO` in the code:
 | **Error codes** | `RobotStatus_Error` is documented as "refer to the programming manual"; the table is not in any protocol file. The simulator invents codes in the 32000s to stay inside the field. |
 | **Digital I/O** | The cyclic assemblies carry none — the manual confirms it, listing `SetOutputState` (34) as *not available on this robot*. `SetOutputState`/`GetRtOutputState` raise `FieldbusUnsupportedFeature`. |
 | **Dynamic data slots** | `DynamicTypeCfg0..3` select what the robot publishes in `DynamicData0..3`; the manual's Table 12 lists ~50 type codes (joint torques, limits, gripper state, collision status…). Present in the spec, not yet surfaced in the facade — this is the natural next increment. |
-| **Command coverage** | All 48 identifiers are in the spec and reachable through `SendMotionCommand`, but only `MoveJoints` and `MovePose` have a named wrapper, and the simulator executes only those plus `MoveJointsVel`. |
+| **Command read-back** | Settings are confirmed by acknowledgement only. Reading them back — and with them the joint torques, the actual positions, the gripper state — needs the four `DynamicData` slots. That is the one capability standing between the command suite and full verification. |
+| **Command wrappers** | All 48 identifiers are reachable through `SendMotionCommand`, but only `MoveJoints` and `MovePose` have a named wrapper. |
 | **Socket address item** | Whether the robot honours the T→O socket address item is still unconfirmed on hardware; the scanner listens on 2222 by default so that it does not matter. See [Troubleshooting](#troubleshooting). |
 | **Connection watchdog** | The mock does not drop the connection when the scanner stops producing, and never sets `StopMask_ConnectionDropped`. |
 | **Joint limits** | The simulator applies a flat ±175°; the real per-joint limits are in the manual. |

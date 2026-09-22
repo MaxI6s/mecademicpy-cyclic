@@ -41,6 +41,7 @@ from .robot_classes import (
     RobotPosition,
     RobotSafetyStatus,
     RobotStatus,
+    RobotTimestamp,
     SafetyStopFlags,
 )
 from .transports import FieldbusTransport
@@ -62,6 +63,7 @@ __all__ = [
     "RobotPosition",
     "RobotSafetyStatus",
     "RobotStatus",
+    "RobotTimestamp",
     "SafetyStopFlags",
     "FieldbusError",
     "FieldbusConnectionError",

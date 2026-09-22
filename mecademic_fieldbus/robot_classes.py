@@ -31,6 +31,7 @@ __all__ = [
     "RobotPosition",
     "RobotSafetyStatus",
     "RobotStatus",
+    "RobotTimestamp",
     "SafetyStopFlags",
 ]
 
@@ -223,6 +224,31 @@ class RobotPosition:
     elbow: InverseKinematicsConfiguration = InverseKinematicsConfiguration.UNDEFINED
     wrist: InverseKinematicsConfiguration = InverseKinematicsConfiguration.UNDEFINED
     turn: InverseKinematicsConfiguration = InverseKinematicsConfiguration.UNDEFINED
+
+
+@dataclass(frozen=True)
+class RobotTimestamp:
+    """Free-running counters the robot publishes with every cyclic frame.
+
+    They are the most reliable proof that a connection is live: a robot that is
+    producing cannot publish the same values twice.
+
+    Attributes:
+        seconds: Robot clock, in seconds since the UNIX epoch.  It only becomes
+            meaningful once the scanner has synchronised it.
+        microseconds: Sub-second part of the robot clock.
+        dynamic_data_cycles: How many times the robot has refreshed all of its
+            dynamic data slots.
+    """
+
+    seconds: int = 0
+    microseconds: int = 0
+    dynamic_data_cycles: int = 0
+
+    @property
+    def monotonic_microseconds(self) -> int:
+        """The clock as a single microsecond count, for comparing two frames."""
+        return self.seconds * 1000000 + self.microseconds
 
 
 @dataclass(frozen=True)

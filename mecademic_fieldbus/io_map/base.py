@@ -33,6 +33,7 @@ from ..robot_classes import (
     RobotPosition,
     RobotSafetyStatus,
     RobotStatus,
+    RobotTimestamp,
 )
 from .spec_loader import ConnectionProfile
 
@@ -262,6 +263,34 @@ class IoMap(abc.ABC):
 
         Raises:
             FieldbusIoMapError: If the buffer is too short.
+        """
+
+    @abc.abstractmethod
+    def decode_timestamp(self, raw_input: bytes) -> RobotTimestamp:
+        """Decode the free-running counters from the input assembly.
+
+        Args:
+            raw_input: Raw input assembly image.
+
+        Returns:
+            The decoded counters.
+
+        Raises:
+            FieldbusIoMapError: If the buffer is too short.
+        """
+
+    @abc.abstractmethod
+    def encode_timestamp(
+        self, timestamp: RobotTimestamp, raw_input: Optional[bytes] = None
+    ) -> bytes:
+        """Write the free-running counters into an input assembly image.
+
+        Args:
+            timestamp: Counters to encode.
+            raw_input: Image to update.  Defaults to an all-zero image.
+
+        Returns:
+            The updated input assembly image.
         """
 
     @abc.abstractmethod

@@ -319,3 +319,71 @@ def test_hand_written_originator_opens_a_connection(mock_server: MockRobotServer
             producer.join(timeout=1.0)
         originator.close()
         listener.close()
+
+
+def free_udp_port() -> int:
+    """Return a UDP port that is free right now, on the loopback interface.
+
+    Returns:
+        A port number nothing is currently bound to.
+    """
+    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        probe.bind((HOST, 0))
+        return int(probe.getsockname()[1])
+    finally:
+        probe.close()
+
+
+def test_disconnecting_releases_the_receiving_port(
+    mock_server: MockRobotServer, io_map: IoMap
+) -> None:
+    """A connection must give its receiving socket back when it closes.
+
+    The scanner listens on a *fixed* port against a real robot -- the standard
+    2222 -- so a socket leaked on disconnect makes the next connection fail with
+    "address already in use".  The port is pinned here for the same reason: with
+    an ephemeral one a leak is invisible, because the next connection simply
+    gets a different port.
+    """
+    port = free_udp_port()
+    transport = EtherNetIpTransport.from_io_map(io_map, rpi_ms=RPI_MS, originator_udp_port=port)
+    transport.connect(HOST)
+    assert transport.originator_udp_port == port
+    transport.disconnect()
+
+    # Nothing else may hold the port now.
+    assert port_is_free(socket.SOCK_DGRAM, port), "the receiving socket was leaked"
+
+    # And the very same transport must be able to reconnect to it.
+    transport.connect(HOST)
+    assert transport.is_connected is True
+    transport.disconnect()
+    assert port_is_free(socket.SOCK_DGRAM, port)
+
+
+def test_a_full_session_survives_a_reconnection(
+    mock_server: MockRobotServer, io_map: IoMap
+) -> None:
+    """Commands keep working after a disconnect and reconnect on a fixed port."""
+    port = free_udp_port()
+    transport = EtherNetIpTransport.from_io_map(io_map, rpi_ms=RPI_MS, originator_udp_port=port)
+    robot = FieldbusRobot(transport, io_map, default_timeout_s=10.0)
+    robot.Connect(HOST)
+    try:
+        robot.ActivateRobot()
+        robot.Home()
+        first = robot.MoveJoints(0.0, 0.0, 0.0, 0.0, 10.0, 0.0)
+        robot.WaitIdle(timeout_s=10.0)
+
+        robot.Disconnect()
+        robot.Connect(HOST)
+
+        robot.ActivateRobot()
+        robot.Home()
+        second = robot.MoveJoints(0.0, 0.0, 0.0, 0.0, 20.0, 0.0)
+        assert second != first
+        robot.WaitIdle(timeout_s=10.0)
+        assert robot.GetRobotPosition().joints[4] == pytest.approx(20.0, abs=0.01)
+    finally:
+        robot.Disconnect()

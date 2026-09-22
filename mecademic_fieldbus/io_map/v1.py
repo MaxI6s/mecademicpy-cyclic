@@ -28,6 +28,7 @@ from ..robot_classes import (
     RobotPosition,
     RobotSafetyStatus,
     RobotStatus,
+    RobotTimestamp,
     SafetyStopFlags,
 )
 from .base import IoMap
@@ -80,6 +81,9 @@ _IN_POSE = (
     "EndEffectorPose_AngB",
     "EndEffectorPose_AngG",
 )
+_IN_TIMESTAMP_SECOND = "Timestamp_Second"
+_IN_TIMESTAMP_MICROSECOND = "Timestamp_Microsecond"
+_IN_DYNAMIC_DATA_CYCLES = "DynamicDataCycles"
 _IN_SHOULDER = "Configuration_Shoulder"
 _IN_ELBOW = "Configuration_Elbow"
 _IN_WRIST = "Configuration_Wrist"
@@ -343,6 +347,49 @@ class IoMapV1(IoMap):
             elbow=InverseKinematicsConfiguration.from_raw(int(values[_IN_ELBOW])),
             wrist=InverseKinematicsConfiguration.from_raw(int(values[_IN_WRIST])),
             turn=InverseKinematicsConfiguration.from_raw(int(values[_IN_TURN])),
+        )
+
+    def decode_timestamp(self, raw_input: bytes) -> RobotTimestamp:
+        """Decode the free-running counters from the input assembly.
+
+        Args:
+            raw_input: Raw input assembly image.
+
+        Returns:
+            The decoded counters.
+
+        Raises:
+            FieldbusIoMapError: If the buffer is too short.
+        """
+        values = self._input.read_many(
+            raw_input,
+            (_IN_TIMESTAMP_SECOND, _IN_TIMESTAMP_MICROSECOND, _IN_DYNAMIC_DATA_CYCLES),
+        )
+        return RobotTimestamp(
+            seconds=int(values[_IN_TIMESTAMP_SECOND]),
+            microseconds=int(values[_IN_TIMESTAMP_MICROSECOND]),
+            dynamic_data_cycles=int(values[_IN_DYNAMIC_DATA_CYCLES]),
+        )
+
+    def encode_timestamp(
+        self, timestamp: RobotTimestamp, raw_input: Optional[bytes] = None
+    ) -> bytes:
+        """Write the free-running counters into an input assembly image.
+
+        Args:
+            timestamp: Counters to encode.
+            raw_input: Image to update.  Defaults to an all-zero image.
+
+        Returns:
+            The updated input assembly image.
+        """
+        return self._input.pack(
+            {
+                _IN_TIMESTAMP_SECOND: timestamp.seconds,
+                _IN_TIMESTAMP_MICROSECOND: timestamp.microseconds,
+                _IN_DYNAMIC_DATA_CYCLES: timestamp.dynamic_data_cycles,
+            },
+            base=raw_input,
         )
 
     def encode_status(self, status: RobotStatus, raw_input: Optional[bytes] = None) -> bytes:

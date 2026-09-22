@@ -356,13 +356,20 @@ class EtherNetIpTransport(FieldbusTransport):
         self._output_bits = None
 
     def _stop_io(self) -> None:
-        """Stop the receiving thread of the stack, quietly.
+        """Stop the receiving thread of the stack and release its socket.
 
         ``stopIO`` closes the receiving socket while the thread of the stack is
         still blocked in ``select`` on it, which surfaces as an unhandled "bad
         file descriptor" traceback in that thread.  Clearing the run flag first
         and then waking the thread with a dummy datagram lets it notice the
         flag and return on its own.
+
+        Clearing that flag also means ``stopIO`` will no longer close the
+        socket -- it only closes one it still considers running -- so from that
+        point on closing it is this transport's job.  Getting that wrong leaks
+        the receiving port, which goes unnoticed on an ephemeral one and makes
+        the next connection fail with "address already in use" on the standard
+        2222.
 
         TODO: remove this workaround if the upstream stack learns to shut its
         listener down cleanly.
@@ -371,41 +378,59 @@ class EtherNetIpTransport(FieldbusTransport):
         if enip is None:
             return
         try:
-            self._wake_up_listener(enip)
+            released = self._shutdown_listener(enip)
         except (AttributeError, OSError):
             # Unknown or already released internals: fall back to the plain
             # shutdown, noisy traceback included.
-            pass
-        try:
-            enip.stopIO()
-        except OSError:
-            pass
+            released = False
+        if not released:
+            try:
+                enip.stopIO()
+            except OSError:
+                pass
 
     @staticmethod
-    def _wake_up_listener(enip: Any) -> None:
-        """Ask the receiving thread of the stack to return from its select call.
+    def _shutdown_listener(enip: Any) -> bool:
+        """Stop the receiving thread of the stack and close its socket.
 
         Args:
             enip: Stack instance owning the receiving socket and thread.
+
+        Returns:
+            ``True`` when this call took the socket over and closed it, so that
+            the caller knows not to ask the stack to close it again.  ``False``
+            when there was nothing running to shut down.
 
         Raises:
             AttributeError: If the stack does not expose the expected internals.
             OSError: If the socket is already closed.
         """
-        if enip.udpsock is None or enip.io_state != 1:
-            return
-        port = int(enip.udpsock.getsockname()[1])
+        listener = enip.udpsock
+        if listener is None or enip.io_state != 1:
+            return False
+        port = int(listener.getsockname()[1])
+        # Past this point the stack considers its listener stopped and will not
+        # touch the socket again, so closing it is on us whatever happens next.
         enip.io_state = 0
-        waker = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
-            # A minimal, non-matching cyclic frame: long enough for the stack to
-            # parse it, addressed to a connection it does not know.
-            waker.sendto(bytes(_WAKE_UP_DATAGRAM_SIZE), ("127.0.0.1", port))
+            waker = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            try:
+                # A minimal, non-matching cyclic frame: long enough for the
+                # stack to parse it, addressed to a connection it knows nothing
+                # about.
+                waker.sendto(bytes(_WAKE_UP_DATAGRAM_SIZE), ("127.0.0.1", port))
+            finally:
+                waker.close()
+            thread = getattr(enip, "udpthread", None)
+            if thread is not None:
+                thread.join(timeout=1.0)
         finally:
-            waker.close()
-        thread = getattr(enip, "udpthread", None)
-        if thread is not None:
-            thread.join(timeout=1.0)
+            try:
+                listener.close()
+            except OSError:
+                pass
+            enip.udpsock = None
+        return True
 
 
 def _bits_to_bytes(bits: List[Any]) -> bytes:
