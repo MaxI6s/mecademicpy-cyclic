@@ -22,7 +22,7 @@ silently doing nothing, so an application always knows what it is getting.
 """
 
 import abc
-from typing import Dict, Optional
+from typing import Dict, FrozenSet, Optional
 
 from ..exceptions import FieldbusUnsupportedFeature
 from ..robot_classes import (
@@ -90,10 +90,16 @@ class IoMap(abc.ABC):
     @property
     @abc.abstractmethod
     def motion_command_ids(self) -> Dict[str, int]:
-        """Known motion command identifiers, keyed by command name.
+        """Known motion command identifiers, keyed by command name."""
 
-        Empty until they are filled into the specification: the vendor files
-        do not publish them.
+    @property
+    @abc.abstractmethod
+    def velocity_mode_commands(self) -> FrozenSet[str]:
+        """Names of the commands that run continuously instead of being queued.
+
+        A velocity-mode command is sent with a move id of ``0`` and held; the
+        others are queued by changing the move id.  Confusing the two is a
+        documented way to fill the motion queue with copies of one command.
         """
 
     @abc.abstractmethod
@@ -127,6 +133,21 @@ class IoMap(abc.ABC):
                 "add it to the 'motion_commands.ids' section of the specification "
                 "(known commands: {})".format(name, self.version, known)
             )
+
+    def is_velocity_mode_command(self, command_id: int) -> bool:
+        """Tell whether an identifier designates a velocity-mode command.
+
+        Args:
+            command_id: Identifier to classify.
+
+        Returns:
+            ``True`` when the command must be held with a move id of ``0``
+            rather than queued.
+        """
+        ids = self.motion_command_ids
+        return any(
+            ids.get(name) == command_id for name in self.velocity_mode_commands if name in ids
+        )
 
     # ------------------------------------------------------------------
     # Optional features

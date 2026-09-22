@@ -501,8 +501,8 @@
     },
     {
       "name": "move_joints",
-      "description": "Joint move 3, using the synthetic command id of the simulator.",
-      "hex": "0200000003000100915f010000000000000028410000a2c1000000000000b442000034c2000000000000000000000000000000000000000000000000",
+      "description": "Joint move 3: MoveJoints, as the programming manual numbers it.",
+      "hex": "02000000030001000100000000000000000028410000a2c1000000000000b442000034c2000000000000000000000000000000000000000000000000",
       "robot_control": {
         "deactivate": false,
         "activate": true,
@@ -520,7 +520,7 @@
         "use_variables": false
       },
       "motion_command": {
-        "command_id": 90001,
+        "command_id": 1,
         "arguments": [
           0.0,
           10.5,

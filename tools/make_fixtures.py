@@ -35,7 +35,7 @@ from mecademic_fieldbus.robot_classes import (  # noqa: E402
     RobotStatus,
     SafetyStopFlags,
 )
-from mock_robot.simulator import DEFAULT_FIFO_SPACE, DEMO_MOTION_COMMAND_IDS  # noqa: E402
+from mock_robot.simulator import DEFAULT_FIFO_SPACE  # noqa: E402
 
 #: Where the vectors are written, relative to the repository root.
 DEFAULT_OUTPUT = os.path.join("tests", "fixtures", "assembly_v1_vectors.json")
@@ -275,11 +275,11 @@ def build_document(io_map: IoMap) -> Dict[str, Any]:
                     output_case(
                         io_map,
                         "move_joints",
-                        "Joint move 3, using the synthetic command id of the simulator.",
+                        "Joint move 3: MoveJoints, as the programming manual numbers it.",
                         RobotControl(activate=True),
                         MotionControl(move_id=3, setpoint=True),
                         MotionCommand.build(
-                            DEMO_MOTION_COMMAND_IDS["MoveJoints"],
+                            io_map.motion_command_id("MoveJoints"),
                             (0.0, 10.5, -20.25, 0.0, 90.0, -45.0),
                         ),
                     ),

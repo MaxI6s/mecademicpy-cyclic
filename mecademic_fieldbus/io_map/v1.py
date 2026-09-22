@@ -13,7 +13,7 @@ Fields the vendor marks as deprecated -- ``RobotStatus_EStop`` and
 the specification but deliberately not surfaced here.
 """
 
-from typing import Any, Dict, Optional, Sequence, Tuple
+from typing import Any, Dict, FrozenSet, Optional, Sequence, Tuple
 
 from ..exceptions import FieldbusIoMapError
 from ..robot_classes import (
@@ -179,6 +179,11 @@ class IoMapV1(IoMap):
     def motion_command_ids(self) -> Dict[str, int]:
         """Known motion command identifiers, keyed by command name."""
         return dict(self._motion_command_ids)
+
+    @property
+    def velocity_mode_commands(self) -> FrozenSet[str]:
+        """Names of the commands that run continuously instead of being queued."""
+        return self._spec.velocity_mode_commands
 
     def empty_input_assembly(self) -> bytes:
         """Return an all-zero image of the input assembly."""

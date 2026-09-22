@@ -8,6 +8,8 @@ Two setups are used:
   exact input assembly or to inspect the produced output assembly.
 """
 
+import time
+
 import pytest
 
 from mecademic_fieldbus.exceptions import (
@@ -20,7 +22,7 @@ from mecademic_fieldbus.exceptions import (
 from mecademic_fieldbus.io_map import IoMap
 from mecademic_fieldbus.robot import FieldbusRobot
 from mecademic_fieldbus.robot_classes import MotionStatus, RobotStatus
-from mock_robot.simulator import DEFAULT_FIFO_SPACE, DEMO_MOTION_COMMAND_IDS, RobotSimulator
+from mock_robot.simulator import DEFAULT_FIFO_SPACE, RobotSimulator
 
 from .fake_transport import FakeTransport, SimulatorTransport
 
@@ -125,9 +127,9 @@ def test_disconnect_is_idempotent(robot: FieldbusRobot) -> None:
     assert robot.is_connected is False
 
 
-def test_context_manager_disconnects(demo_io_map: IoMap, simulator: RobotSimulator) -> None:
+def test_context_manager_disconnects(io_map: IoMap, simulator: RobotSimulator) -> None:
     """Leaving a ``with`` block releases the connection."""
-    robot = FieldbusRobot(SimulatorTransport(simulator), demo_io_map, default_timeout_s=2.0)
+    robot = FieldbusRobot(SimulatorTransport(simulator), io_map, default_timeout_s=2.0)
     with robot:
         robot.Connect("in-memory")
         assert robot.is_connected is True
@@ -161,26 +163,26 @@ def test_activate_then_home_then_deactivate(
     assert robot.GetStatusRobot().activated is False
 
 
-def test_home_releases_the_request_bit(demo_io_map: IoMap, simulator: RobotSimulator) -> None:
+def test_home_releases_the_request_bit(io_map: IoMap, simulator: RobotSimulator) -> None:
     """The homing bit is dropped once the robot reports the homed state."""
-    robot = FieldbusRobot(SimulatorTransport(simulator), demo_io_map, default_timeout_s=2.0)
+    robot = FieldbusRobot(SimulatorTransport(simulator), io_map, default_timeout_s=2.0)
     robot.Connect("in-memory")
     robot.ActivateRobot()
     robot.Home()
 
-    latched = demo_io_map.decode_robot_control(robot.latched_output_assembly)
+    latched = io_map.decode_robot_control(robot.latched_output_assembly)
     assert latched.home is False
     assert latched.activate is True
     assert robot.GetStatusRobot().homed is True
 
 
-def test_deactivate_releases_the_request_bit(demo_io_map: IoMap, simulator: RobotSimulator) -> None:
+def test_deactivate_releases_the_request_bit(io_map: IoMap, simulator: RobotSimulator) -> None:
     """Holding the deactivate bit would block any later activation."""
-    robot = FieldbusRobot(SimulatorTransport(simulator), demo_io_map, default_timeout_s=2.0)
+    robot = FieldbusRobot(SimulatorTransport(simulator), io_map, default_timeout_s=2.0)
     robot.Connect("in-memory")
     robot.ActivateRobot()
     robot.DeactivateRobot()
-    assert demo_io_map.decode_robot_control(robot.latched_output_assembly).deactivate is False
+    assert io_map.decode_robot_control(robot.latched_output_assembly).deactivate is False
 
     robot.ActivateRobot()
     assert robot.GetStatusRobot().activated is True
@@ -271,17 +273,48 @@ def test_move_joints_checks_the_argument_count(robot: FieldbusRobot) -> None:
         robot.MoveJoints(0.0, 0.0)
 
 
-def test_move_without_a_known_command_id_says_what_to_do(
-    io_map: IoMap, simulator: RobotSimulator
-) -> None:
-    """Without the identifiers, the failure names the section to fill in."""
-    robot = FieldbusRobot(SimulatorTransport(simulator), io_map, default_timeout_s=2.0)
-    robot.Connect("in-memory")
+def test_velocity_commands_cannot_be_queued(robot: FieldbusRobot, io_map: IoMap) -> None:
+    """Queueing a velocity-mode command is the documented way to flood the queue."""
     robot.ActivateRobot()
     robot.Home()
-    with pytest.raises(FieldbusUnsupportedFeature) as error:
-        robot.MoveJoints(*TARGET)
-    assert "motion_commands" in str(error.value)
+    with pytest.raises(FieldbusStateError) as error:
+        robot.SendMotionCommand(io_map.motion_command_id("MoveJointsVel"), 0.0)
+    assert "StartVelocityCommand" in str(error.value)
+
+
+def test_queued_commands_cannot_be_held(robot: FieldbusRobot, io_map: IoMap) -> None:
+    """And the converse: holding a positional command is refused too."""
+    robot.ActivateRobot()
+    robot.Home()
+    with pytest.raises(FieldbusStateError) as error:
+        robot.StartVelocityCommand(io_map.motion_command_id("MoveJoints"), *TARGET)
+    assert "SendMotionCommand" in str(error.value)
+
+
+def test_velocity_command_is_held_with_a_zero_move_id(
+    robot: FieldbusRobot, io_map: IoMap, simulator: RobotSimulator
+) -> None:
+    """A velocity-mode command runs continuously while it is held."""
+    robot.ActivateRobot()
+    robot.Home()
+    robot.StartVelocityCommand(io_map.motion_command_id("MoveJointsVel"), 0.0, 0.0, 0.0, 0.0, 30.0)
+
+    control = io_map.decode_motion_control(robot.latched_output_assembly)
+    assert control.move_id == 0
+    assert control.setpoint is True
+
+    # The facade drives the simulator on the real clock, so let a little time
+    # pass rather than injecting one: at 30 deg/s the joint must have moved.
+    time.sleep(0.15)
+    robot.GetRobotPosition()
+    moved = simulator.joint_positions[4]
+    assert moved > 1.0
+
+    robot.StopVelocityCommand()
+    assert io_map.decode_motion_control(robot.latched_output_assembly).setpoint is False
+    time.sleep(0.05)
+    robot.GetRobotPosition()
+    assert simulator.joint_positions[4] == pytest.approx(moved, abs=0.5)
 
 
 def test_move_ids_are_unique_and_echoed(robot: FieldbusRobot) -> None:
@@ -296,16 +329,16 @@ def test_move_ids_are_unique_and_echoed(robot: FieldbusRobot) -> None:
     assert robot.GetMotionStatus().move_id == second
 
 
-def test_move_pose_is_encoded_as_the_pose_command(robot: FieldbusRobot, demo_io_map: IoMap) -> None:
+def test_move_pose_is_encoded_as_the_pose_command(robot: FieldbusRobot, io_map: IoMap) -> None:
     """``MovePose`` sends the identifier registered under that name."""
     robot.ActivateRobot()
     robot.Home()
     pose = robot.GetRobotPosition().pose
     move_id = robot.MovePose(*pose)
 
-    command = demo_io_map.decode_motion_command(robot.latched_output_assembly)
-    control = demo_io_map.decode_motion_control(robot.latched_output_assembly)
-    assert command.command_id == DEMO_MOTION_COMMAND_IDS["MovePose"]
+    command = io_map.decode_motion_command(robot.latched_output_assembly)
+    control = io_map.decode_motion_control(robot.latched_output_assembly)
+    assert command.command_id == io_map.motion_command_id("MovePose")
     assert command.arguments == pytest.approx(pose)
     assert control.move_id == move_id
     assert control.setpoint is True
@@ -328,16 +361,16 @@ def test_wait_idle_times_out_on_a_stalled_robot(io_map: IoMap) -> None:
         robot.WaitIdle()
 
 
-def test_pause_and_resume(robot: FieldbusRobot, demo_io_map: IoMap) -> None:
+def test_pause_and_resume(robot: FieldbusRobot, io_map: IoMap) -> None:
     """Pausing sets the level bit; resuming pulses the rising-edge one."""
     robot.ActivateRobot()
     robot.Home()
     robot.PauseMotion()
-    assert demo_io_map.decode_motion_control(robot.latched_output_assembly).pause is True
+    assert io_map.decode_motion_control(robot.latched_output_assembly).pause is True
     assert robot.GetMotionStatus().paused is True
 
     robot.ResumeMotion()
-    assert demo_io_map.decode_motion_control(robot.latched_output_assembly).pause is False
+    assert io_map.decode_motion_control(robot.latched_output_assembly).pause is False
     assert robot.GetMotionStatus().paused is False
 
 
@@ -357,8 +390,8 @@ def test_every_command_produces_a_full_size_assembly(io_map: IoMap) -> None:
     robot = connected(io_map, live_input(io_map, RobotStatus(activated=True, homed=True)))
     transport = robot.transport
     assert isinstance(transport, FakeTransport)
-    robot.SendMotionCommand(1, 1.0, 2.0, 3.0)
-    robot.PauseMotion()
+    robot.SendMotionCommand(io_map.motion_command_id("MoveJoints"), *TARGET)
+    robot.StopVelocityCommand()
     assert transport.written_assemblies
     for image in transport.written_assemblies:
         assert len(image) == io_map.output_assembly_size
@@ -382,7 +415,7 @@ def test_repr_mentions_the_io_map_version(robot: FieldbusRobot) -> None:
 
 
 def test_reconnecting_does_not_reuse_an_acknowledged_move_id(
-    demo_io_map: IoMap, simulator: RobotSimulator
+    io_map: IoMap, simulator: RobotSimulator
 ) -> None:
     """A scanner restarting against a live robot still gets its moves executed.
 
@@ -390,7 +423,7 @@ def test_reconnecting_does_not_reuse_an_acknowledged_move_id(
     resume the sequence rather than restart it at zero.
     """
     transport = SimulatorTransport(simulator)
-    first = FieldbusRobot(transport, demo_io_map, default_timeout_s=2.0)
+    first = FieldbusRobot(transport, io_map, default_timeout_s=2.0)
     first.Connect("in-memory")
     first.ActivateRobot()
     first.Home()
@@ -398,7 +431,7 @@ def test_reconnecting_does_not_reuse_an_acknowledged_move_id(
     first.WaitIdle(timeout_s=5.0)
     first.Disconnect()
 
-    second = FieldbusRobot(transport, demo_io_map, default_timeout_s=2.0)
+    second = FieldbusRobot(transport, io_map, default_timeout_s=2.0)
     second.Connect("in-memory")
     second.ActivateRobot()
     second.Home()

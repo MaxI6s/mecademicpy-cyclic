@@ -12,7 +12,6 @@ import pytest
 from mecademic_fieldbus.io_map import IoMap
 from mecademic_fieldbus.robot_classes import MotionCommand, MotionControl, RobotControl
 from mock_robot.simulator import (
-    DEMO_MOTION_COMMAND_IDS,
     RobotSimulator,
     SimulatorErrorCode,
     SimulatorState,
@@ -20,11 +19,9 @@ from mock_robot.simulator import (
 
 
 @pytest.fixture
-def timed_simulator(demo_io_map: IoMap) -> RobotSimulator:
+def timed_simulator(io_map: IoMap) -> RobotSimulator:
     """Return a simulator with non-zero, deterministic sequence durations."""
-    return RobotSimulator(
-        demo_io_map, activation_time_s=1.0, homing_time_s=2.0, joint_speed_deg_s=90.0
-    )
+    return RobotSimulator(io_map, activation_time_s=1.0, homing_time_s=2.0, joint_speed_deg_s=90.0)
 
 
 def drive(simulator: RobotSimulator, io_map: IoMap, now: float, **control: bool) -> None:
@@ -82,7 +79,7 @@ def request_move(
         The output image that was applied.
     """
     raw_output = io_map.encode_motion_command(
-        MotionCommand.build(DEMO_MOTION_COMMAND_IDS[command], arguments), raw_output
+        MotionCommand.build(io_map.motion_command_id(command), arguments), raw_output
     )
     raw_output = io_map.encode_motion_control(
         MotionControl(move_id=move_id, setpoint=True), raw_output
@@ -104,10 +101,10 @@ def test_starts_deactivated(timed_simulator: RobotSimulator) -> None:
 
 
 def test_activation_takes_the_configured_time(
-    timed_simulator: RobotSimulator, demo_io_map: IoMap
+    timed_simulator: RobotSimulator, io_map: IoMap
 ) -> None:
     """Activation is reported only once the simulated delay has elapsed."""
-    drive(timed_simulator, demo_io_map, 0.0, activate=True)
+    drive(timed_simulator, io_map, 0.0, activate=True)
     assert timed_simulator.state is SimulatorState.ACTIVATING
     assert timed_simulator.get_status().activated is False
     assert timed_simulator.get_status().busy is True
@@ -121,23 +118,23 @@ def test_activation_takes_the_configured_time(
     assert timed_simulator.get_status().busy is False
 
 
-def test_deactivate_wins_over_activate(timed_simulator: RobotSimulator, demo_io_map: IoMap) -> None:
+def test_deactivate_wins_over_activate(timed_simulator: RobotSimulator, io_map: IoMap) -> None:
     """With both bits set the robot deactivates, as the vendor documents."""
-    drive(timed_simulator, demo_io_map, 0.0, activate=True)
+    drive(timed_simulator, io_map, 0.0, activate=True)
     timed_simulator.update(now=1.0)
     assert timed_simulator.get_status().activated is True
 
-    drive(timed_simulator, demo_io_map, 1.0, activate=True, deactivate=True)
+    drive(timed_simulator, io_map, 1.0, activate=True, deactivate=True)
     assert timed_simulator.state is SimulatorState.DEACTIVATING
     timed_simulator.update(now=2.0)
     assert timed_simulator.get_status().activated is False
 
 
-def test_homing_sequence(timed_simulator: RobotSimulator, demo_io_map: IoMap) -> None:
+def test_homing_sequence(timed_simulator: RobotSimulator, io_map: IoMap) -> None:
     """Homing runs from the activated state and ends in idle."""
-    drive(timed_simulator, demo_io_map, 0.0, activate=True)
+    drive(timed_simulator, io_map, 0.0, activate=True)
     timed_simulator.update(now=1.0)
-    drive(timed_simulator, demo_io_map, 1.0, activate=True, home=True)
+    drive(timed_simulator, io_map, 1.0, activate=True, home=True)
     assert timed_simulator.state is SimulatorState.HOMING
     assert timed_simulator.get_status().homed is False
     assert timed_simulator.get_status().busy is True
@@ -148,52 +145,50 @@ def test_homing_sequence(timed_simulator: RobotSimulator, demo_io_map: IoMap) ->
 
 
 def test_homing_is_ignored_while_deactivated(
-    timed_simulator: RobotSimulator, demo_io_map: IoMap
+    timed_simulator: RobotSimulator, io_map: IoMap
 ) -> None:
     """Requesting homing without power does not home the robot."""
-    drive(timed_simulator, demo_io_map, 0.0, home=True)
+    drive(timed_simulator, io_map, 0.0, home=True)
     assert timed_simulator.state is SimulatorState.DEACTIVATED
     assert timed_simulator.get_status().homed is False
 
 
 def test_deactivation_loses_the_homing_reference(
-    timed_simulator: RobotSimulator, demo_io_map: IoMap
+    timed_simulator: RobotSimulator, io_map: IoMap
 ) -> None:
     """Powering down clears the homed flag."""
-    drive(timed_simulator, demo_io_map, 0.0, activate=True)
+    drive(timed_simulator, io_map, 0.0, activate=True)
     timed_simulator.update(now=1.0)
-    drive(timed_simulator, demo_io_map, 1.0, activate=True, home=True)
+    drive(timed_simulator, io_map, 1.0, activate=True, home=True)
     timed_simulator.update(now=3.0)
     assert timed_simulator.get_status().homed is True
 
-    drive(timed_simulator, demo_io_map, 3.0, deactivate=True)
+    drive(timed_simulator, io_map, 3.0, deactivate=True)
     timed_simulator.update(now=4.0)
     assert timed_simulator.state is SimulatorState.DEACTIVATED
     assert timed_simulator.get_status().homed is False
 
 
 def test_simulation_mode_only_toggles_while_deactivated(
-    timed_simulator: RobotSimulator, demo_io_map: IoMap
+    timed_simulator: RobotSimulator, io_map: IoMap
 ) -> None:
     """Simulation mode is latched while the robot is off, as documented."""
-    drive(timed_simulator, demo_io_map, 0.0, enable_simulation=True)
+    drive(timed_simulator, io_map, 0.0, enable_simulation=True)
     assert timed_simulator.get_status().simulation_mode is True
 
-    drive(timed_simulator, demo_io_map, 0.0, activate=True, enable_simulation=True)
+    drive(timed_simulator, io_map, 0.0, activate=True, enable_simulation=True)
     timed_simulator.update(now=1.0)
-    drive(timed_simulator, demo_io_map, 1.0, activate=True, enable_simulation=False)
+    drive(timed_simulator, io_map, 1.0, activate=True, enable_simulation=False)
     assert timed_simulator.get_status().simulation_mode is True
 
 
 # ----------------------------------------------------------------------
 # Motion
 # ----------------------------------------------------------------------
-def test_joint_move_interpolates_then_completes(
-    simulator: RobotSimulator, demo_io_map: IoMap
-) -> None:
+def test_joint_move_interpolates_then_completes(simulator: RobotSimulator, io_map: IoMap) -> None:
     """A joint move moves through intermediate positions and echoes its id."""
-    raw_output = reach_idle(simulator, demo_io_map)
-    request_move(simulator, demo_io_map, raw_output, 4, "MoveJoints", (0.0,) * 4 + (90.0, 0.0), 0.0)
+    raw_output = reach_idle(simulator, io_map)
+    request_move(simulator, io_map, raw_output, 4, "MoveJoints", (0.0,) * 4 + (90.0, 0.0), 0.0)
 
     assert simulator.state is SimulatorState.MOVING
     assert simulator.get_motion_status().end_of_block is False
@@ -208,12 +203,12 @@ def test_joint_move_interpolates_then_completes(
 
 
 def test_a_move_is_taken_into_account_only_when_the_id_changes(
-    simulator: RobotSimulator, demo_io_map: IoMap
+    simulator: RobotSimulator, io_map: IoMap
 ) -> None:
     """The scanner keeps producing the same image; the move must run once."""
-    raw_output = reach_idle(simulator, demo_io_map)
+    raw_output = reach_idle(simulator, io_map)
     raw_output = request_move(
-        simulator, demo_io_map, raw_output, 4, "MoveJoints", (0.0,) * 4 + (90.0, 0.0), 0.0
+        simulator, io_map, raw_output, 4, "MoveJoints", (0.0,) * 4 + (90.0, 0.0), 0.0
     )
     simulator.update(now=1.0)
     assert simulator.state is SimulatorState.IDLE
@@ -223,67 +218,59 @@ def test_a_move_is_taken_into_account_only_when_the_id_changes(
 
 
 def test_a_move_without_the_setpoint_bit_is_ignored(
-    simulator: RobotSimulator, demo_io_map: IoMap
+    simulator: RobotSimulator, io_map: IoMap
 ) -> None:
     """Clearing the setpoint bit makes the robot ignore the motion fields."""
-    raw_output = reach_idle(simulator, demo_io_map)
-    raw_output = demo_io_map.encode_motion_command(
-        MotionCommand.build(DEMO_MOTION_COMMAND_IDS["MoveJoints"], (0.0,) * 4 + (90.0, 0.0)),
+    raw_output = reach_idle(simulator, io_map)
+    raw_output = io_map.encode_motion_command(
+        MotionCommand.build(io_map.motion_command_id("MoveJoints"), (0.0,) * 4 + (90.0, 0.0)),
         raw_output,
     )
-    raw_output = demo_io_map.encode_motion_control(
-        MotionControl(move_id=9, setpoint=False), raw_output
-    )
+    raw_output = io_map.encode_motion_control(MotionControl(move_id=9, setpoint=False), raw_output)
     simulator.apply_output_assembly(raw_output, now=0.0)
     assert simulator.state is SimulatorState.IDLE
 
 
 def test_pose_move_uses_the_placeholder_kinematics(
-    simulator: RobotSimulator, demo_io_map: IoMap
+    simulator: RobotSimulator, io_map: IoMap
 ) -> None:
     """A Cartesian target is reachable and reported back consistently."""
-    raw_output = reach_idle(simulator, demo_io_map)
+    raw_output = reach_idle(simulator, io_map)
     pose = simulator.get_position().pose
     target = (pose[0] + 10.0,) + tuple(pose[1:])
-    request_move(simulator, demo_io_map, raw_output, 1, "MovePose", target, 0.0)
+    request_move(simulator, io_map, raw_output, 1, "MovePose", target, 0.0)
     simulator.update(now=10.0)
     assert simulator.get_position().pose == pytest.approx(target)
 
 
 def test_unknown_motion_command_raises_a_robot_error(
-    simulator: RobotSimulator, demo_io_map: IoMap
+    simulator: RobotSimulator, io_map: IoMap
 ) -> None:
     """A command identifier the robot does not know puts it in error."""
-    raw_output = reach_idle(simulator, demo_io_map)
-    raw_output = demo_io_map.encode_motion_command(
-        MotionCommand.build(4242, (0.0,) * 6), raw_output
-    )
-    raw_output = demo_io_map.encode_motion_control(
-        MotionControl(move_id=1, setpoint=True), raw_output
-    )
+    raw_output = reach_idle(simulator, io_map)
+    raw_output = io_map.encode_motion_command(MotionCommand.build(4242, (0.0,) * 6), raw_output)
+    raw_output = io_map.encode_motion_control(MotionControl(move_id=1, setpoint=True), raw_output)
     simulator.apply_output_assembly(raw_output, now=0.0)
     assert simulator.state is SimulatorState.ERROR
     assert simulator.error_code == int(SimulatorErrorCode.UNKNOWN_MOTION_COMMAND)
 
 
-def test_move_without_homing_raises_a_robot_error(
-    simulator: RobotSimulator, demo_io_map: IoMap
-) -> None:
+def test_move_without_homing_raises_a_robot_error(simulator: RobotSimulator, io_map: IoMap) -> None:
     """Moving before homing puts the simulated robot in error."""
-    drive(simulator, demo_io_map, 0.0, activate=True)
+    drive(simulator, io_map, 0.0, activate=True)
     simulator.update(now=0.0)
-    raw_output = demo_io_map.encode_robot_control(RobotControl(activate=True))
-    request_move(simulator, demo_io_map, raw_output, 1, "MoveJoints", (0.0,) * 6, 0.0)
+    raw_output = io_map.encode_robot_control(RobotControl(activate=True))
+    request_move(simulator, io_map, raw_output, 1, "MoveJoints", (0.0,) * 6, 0.0)
     assert simulator.state is SimulatorState.ERROR
     assert simulator.error_code == int(SimulatorErrorCode.MOVE_WITHOUT_HOMING)
 
 
 def test_move_outside_the_joint_limits_raises_a_robot_error(
-    simulator: RobotSimulator, demo_io_map: IoMap
+    simulator: RobotSimulator, io_map: IoMap
 ) -> None:
     """A target beyond the joint limits puts the simulated robot in error."""
-    raw_output = reach_idle(simulator, demo_io_map)
-    request_move(simulator, demo_io_map, raw_output, 1, "MoveJoints", (1000.0,) + (0.0,) * 5, 0.0)
+    raw_output = reach_idle(simulator, io_map)
+    request_move(simulator, io_map, raw_output, 1, "MoveJoints", (1000.0,) + (0.0,) * 5, 0.0)
     assert simulator.state is SimulatorState.ERROR
     assert simulator.error_code == int(SimulatorErrorCode.MOVE_OUT_OF_RANGE)
 
@@ -291,17 +278,15 @@ def test_move_outside_the_joint_limits_raises_a_robot_error(
 # ----------------------------------------------------------------------
 # Pause, clear and resume
 # ----------------------------------------------------------------------
-def test_clear_move_stops_the_robot_and_pauses_it(
-    simulator: RobotSimulator, demo_io_map: IoMap
-) -> None:
+def test_clear_move_stops_the_robot_and_pauses_it(simulator: RobotSimulator, io_map: IoMap) -> None:
     """Clearing the queue aborts the move and leaves the robot paused."""
-    raw_output = reach_idle(simulator, demo_io_map)
+    raw_output = reach_idle(simulator, io_map)
     raw_output = request_move(
-        simulator, demo_io_map, raw_output, 1, "MoveJoints", (0.0,) * 4 + (90.0, 0.0), 0.0
+        simulator, io_map, raw_output, 1, "MoveJoints", (0.0,) * 4 + (90.0, 0.0), 0.0
     )
     simulator.update(now=0.2)
 
-    raw_output = demo_io_map.encode_motion_control(
+    raw_output = io_map.encode_motion_control(
         MotionControl(move_id=1, setpoint=True, clear_move=True), raw_output
     )
     simulator.apply_output_assembly(raw_output, now=0.2)
@@ -311,23 +296,21 @@ def test_clear_move_stops_the_robot_and_pauses_it(
     assert status.cleared is True
 
 
-def test_resume_motion_acts_on_its_rising_edge(
-    simulator: RobotSimulator, demo_io_map: IoMap
-) -> None:
+def test_resume_motion_acts_on_its_rising_edge(simulator: RobotSimulator, io_map: IoMap) -> None:
     """Holding the resume bit does not resume a pause requested afterwards."""
-    raw_output = reach_idle(simulator, demo_io_map)
-    paused = demo_io_map.encode_motion_control(MotionControl(pause=True), raw_output)
+    raw_output = reach_idle(simulator, io_map)
+    paused = io_map.encode_motion_control(MotionControl(pause=True), raw_output)
     simulator.apply_output_assembly(paused, now=0.0)
     assert simulator.get_motion_status().paused is True
 
-    resumed = demo_io_map.encode_motion_control(
+    resumed = io_map.encode_motion_control(
         MotionControl(pause=False, resume_motion=True), raw_output
     )
     simulator.apply_output_assembly(resumed, now=0.0)
     assert simulator.get_motion_status().paused is False
 
     # The bit stays set; a new pause must not be undone by the held level.
-    paused_again = demo_io_map.encode_motion_control(
+    paused_again = io_map.encode_motion_control(
         MotionControl(pause=True, resume_motion=True), raw_output
     )
     simulator.apply_output_assembly(paused_again, now=0.0)
@@ -337,34 +320,83 @@ def test_resume_motion_acts_on_its_rising_edge(
 # ----------------------------------------------------------------------
 # Errors and assembly production
 # ----------------------------------------------------------------------
-def test_reset_error_returns_to_deactivated(simulator: RobotSimulator, demo_io_map: IoMap) -> None:
+def test_reset_error_returns_to_deactivated(simulator: RobotSimulator, io_map: IoMap) -> None:
     """Resetting an error powers the robot down and clears the code."""
     simulator.inject_error()
     assert simulator.state is SimulatorState.ERROR
 
     simulator.apply_output_assembly(
-        demo_io_map.encode_robot_control(RobotControl(reset_error=True)), now=0.0
+        io_map.encode_robot_control(RobotControl(reset_error=True)), now=0.0
     )
     assert simulator.state is SimulatorState.DEACTIVATED
     assert simulator.error_code == 0
 
 
-def test_produced_assembly_has_the_expected_size(
-    simulator: RobotSimulator, demo_io_map: IoMap
-) -> None:
+def test_produced_assembly_has_the_expected_size(simulator: RobotSimulator, io_map: IoMap) -> None:
     """The simulator produces a full-size input assembly."""
-    assert len(simulator.build_input_assembly(now=0.0)) == demo_io_map.input_assembly_size
+    assert len(simulator.build_input_assembly(now=0.0)) == io_map.input_assembly_size
 
 
 def test_produced_assembly_is_never_all_zeros_once_powered(
-    simulator: RobotSimulator, demo_io_map: IoMap
+    simulator: RobotSimulator, io_map: IoMap
 ) -> None:
     """A live robot always differs from the empty image, which Connect relies on."""
-    reach_idle(simulator, demo_io_map)
-    assert simulator.build_input_assembly(now=0.0) != demo_io_map.empty_input_assembly()
+    reach_idle(simulator, io_map)
+    assert simulator.build_input_assembly(now=0.0) != io_map.empty_input_assembly()
 
 
-def test_home_position_must_match_the_joint_count(demo_io_map: IoMap) -> None:
+def test_home_position_must_match_the_joint_count(io_map: IoMap) -> None:
     """A malformed home position is refused at construction time."""
     with pytest.raises(ValueError):
-        RobotSimulator(demo_io_map, home_position_deg=(0.0, 0.0))
+        RobotSimulator(io_map, home_position_deg=(0.0, 0.0))
+
+
+def test_velocity_mode_integrates_while_held(simulator: RobotSimulator, io_map: IoMap) -> None:
+    """A velocity-mode command runs continuously while the move id stays zero."""
+    raw_output = reach_idle(simulator, io_map)
+    raw_output = io_map.encode_motion_command(
+        MotionCommand.build(io_map.motion_command_id("MoveJointsVel"), (0.0, 0.0, 0.0, 0.0, 30.0)),
+        raw_output,
+    )
+    raw_output = io_map.encode_motion_control(MotionControl(move_id=0, setpoint=True), raw_output)
+    simulator.apply_output_assembly(raw_output, now=0.0)
+
+    simulator.update(now=1.0)
+    assert simulator.joint_positions[4] == pytest.approx(30.0)
+    assert simulator.state is SimulatorState.MOVING
+
+    simulator.update(now=2.0)
+    assert simulator.joint_positions[4] == pytest.approx(60.0)
+
+
+def test_velocity_mode_stops_when_the_setpoint_drops(
+    simulator: RobotSimulator, io_map: IoMap
+) -> None:
+    """Clearing the setpoint releases the held command."""
+    raw_output = reach_idle(simulator, io_map)
+    held = io_map.encode_motion_command(
+        MotionCommand.build(io_map.motion_command_id("MoveJointsVel"), (0.0, 0.0, 0.0, 0.0, 30.0)),
+        raw_output,
+    )
+    held = io_map.encode_motion_control(MotionControl(move_id=0, setpoint=True), held)
+    simulator.apply_output_assembly(held, now=0.0)
+    simulator.update(now=1.0)
+
+    released = io_map.encode_motion_control(MotionControl(move_id=0, setpoint=False), held)
+    simulator.apply_output_assembly(released, now=1.0)
+    simulator.update(now=2.0)
+    assert simulator.joint_positions[4] == pytest.approx(30.0)
+    assert simulator.state is SimulatorState.IDLE
+
+
+def test_velocity_mode_respects_the_joint_limits(simulator: RobotSimulator, io_map: IoMap) -> None:
+    """Integrating a velocity cannot drive a joint past its limit."""
+    raw_output = reach_idle(simulator, io_map)
+    raw_output = io_map.encode_motion_command(
+        MotionCommand.build(io_map.motion_command_id("MoveJointsVel"), (1000.0,)),
+        raw_output,
+    )
+    raw_output = io_map.encode_motion_control(MotionControl(move_id=0, setpoint=True), raw_output)
+    simulator.apply_output_assembly(raw_output, now=0.0)
+    simulator.update(now=10.0)
+    assert simulator.joint_positions[0] == pytest.approx(175.0)

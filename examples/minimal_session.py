@@ -45,12 +45,11 @@ from mecademic_fieldbus import (  # noqa: E402
     FieldbusUnsupportedFeature,
     get_io_map,
 )
-from mecademic_fieldbus.io_map import IoMapV1  # noqa: E402
 from mecademic_fieldbus.transports.ethernetip import EtherNetIpTransport  # noqa: E402
 
 #: Joint target used by the demonstration move, in degrees.
 #: TODO: adjust to something safe for your cell before running on real hardware.
-DEMO_JOINT_TARGET = (0.0, 0.0, 0.0, 0.0, 30.0, 0.0)
+DEMO_JOINT_TARGET = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -114,13 +113,7 @@ def build_robot(
     Returns:
         A facade that is not connected yet.
     """
-    if mock:
-        from mock_robot.simulator import DEMO_MOTION_COMMAND_IDS
-
-        io_map = IoMapV1(motion_command_ids=DEMO_MOTION_COMMAND_IDS)
-    else:
-        io_map = get_io_map()
-
+    io_map = get_io_map()
     overrides = {}
     if rpi_ms is not None:
         overrides["rpi_ms"] = rpi_ms

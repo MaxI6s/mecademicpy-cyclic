@@ -120,7 +120,7 @@ robot.ActivateRobot()
 robot.Home()
 print(robot.GetStatusRobot())
 print(robot.GetRobotPosition().joints)
-robot.MoveJoints(0, 0, 0, 0, 30, 0)   # needs the command ids, see below
+robot.MoveJoints(0, 0, 0, 0, 30, 0)
 robot.WaitIdle()
 robot.DeactivateRobot()
 robot.Disconnect()
@@ -143,6 +143,17 @@ There is no request/response here, and the vendor semantics are specific:
   a live robot never reuses an id the robot would silently discard.
 * There is **no error bit**: a non-zero `RobotStatus_Error` is what signals the
   error state. `RobotStatus.error_status` derives it for you.
+* Motion commands come in **two flavours**, and mixing them up is a documented
+  footgun. Positional and configuration commands are *queued* by changing the
+  move id (`SendMotionCommand`). The three velocity-mode commands —
+  `MoveJointsVel`, `MoveLinVelWrf`, `MoveLinVelTrf` — are *held* with a move id
+  of `0` and run continuously (`StartVelocityCommand` / `StopVelocityCommand`).
+  Queueing a velocity command, or holding a positional one, fills the motion
+  queue with a copy of it every cycle. The facade refuses both, naming the
+  method you meant.
+* Every motion control action is confirmed by a status bit, never by a delay —
+  the manual is explicit about it — so `PauseMotion`, `ResumeMotion` and
+  `ClearMotion` wait for their confirmation before returning.
 
 ## Repository layout
 
@@ -165,6 +176,8 @@ mock_robot/
     server.py                 minimal EtherNet/IP adapter, raw sockets
 tools/
     eds_to_spec.py            regenerates the spec from a vendor EDS
+    motion_commands_v1.json   command ids, transcribed from the manual
+    update_motion_commands.py merges that table into the spec, no EDS needed
     make_fixtures.py          regenerates the golden test vectors
     eip_originator.py         dependency-free CIP originator, for diagnosis
     diagnose_connection.py    finds out why a robot produces nothing
@@ -189,6 +202,16 @@ The generator reads the `[Device]`, `[Params]`, `[Assembly]` and
 field per named bit, drops the reserved and unused ones, and computes every
 offset from the ordered member list. It fails loudly if the member sizes
 contradict the connection sizes the EDS declares.
+
+One thing it cannot generate: the **motion command identifiers**. No vendor
+definition file publishes them — not the EDS, not the GSDML, not the ESI — so
+they live in a hand-maintained companion table, `tools/motion_commands_v1.json`,
+transcribed from Table 8 of the programming manual and merged into the same
+specification file. When only that table changes, no EDS is needed:
+
+```bash
+python tools/update_motion_commands.py
+```
 
 What it produces for firmware 11.3:
 
@@ -361,10 +384,10 @@ Everything below is marked `# TODO` in the code:
 
 | Topic | What is needed |
 | --- | --- |
-| **Motion command ids** | The EDS, the GSDML *and* the ESI all defer them to the programming manual. Fill them into `motion_commands.ids` in the spec; until then `MoveJoints`/`MovePose` raise a message naming that section, while `SendMotionCommand(id, *args)` works today. The simulator uses clearly synthetic stand-ins (90001/90002). |
-| **Error codes** | Same story: `RobotStatus_Error` is documented as "refer to the programming manual". The simulator invents codes in the 32000s to stay inside the field. |
-| **Digital I/O** | The cyclic assemblies carry none, so `SetOutputState`/`GetRtOutputState` raise `FieldbusUnsupportedFeature`. On this robot they are reachable through the four `DynamicData` slots — whose type codes are, again, manual-only — or through the text API. |
-| **Dynamic data slots** | `DynamicTypeCfg0..3` select what the robot publishes in `DynamicData0..3`. Present in the spec, not yet surfaced in the facade. |
+| **Error codes** | `RobotStatus_Error` is documented as "refer to the programming manual"; the table is not in any protocol file. The simulator invents codes in the 32000s to stay inside the field. |
+| **Digital I/O** | The cyclic assemblies carry none — the manual confirms it, listing `SetOutputState` (34) as *not available on this robot*. `SetOutputState`/`GetRtOutputState` raise `FieldbusUnsupportedFeature`. |
+| **Dynamic data slots** | `DynamicTypeCfg0..3` select what the robot publishes in `DynamicData0..3`; the manual's Table 12 lists ~50 type codes (joint torques, limits, gripper state, collision status…). Present in the spec, not yet surfaced in the facade — this is the natural next increment. |
+| **Command coverage** | All 48 identifiers are in the spec and reachable through `SendMotionCommand`, but only `MoveJoints` and `MovePose` have a named wrapper, and the simulator executes only those plus `MoveJointsVel`. |
 | **Socket address item** | Whether the robot honours the T→O socket address item is still unconfirmed on hardware; the scanner listens on 2222 by default so that it does not matter. See [Troubleshooting](#troubleshooting). |
 | **Connection watchdog** | The mock does not drop the connection when the scanner stops producing, and never sets `StopMask_ConnectionDropped`. |
 | **Joint limits** | The simulator applies a flat ±175°; the real per-joint limits are in the manual. |

@@ -19,6 +19,12 @@ Run it standalone with::
 """
 
 from .server import MockRobotServer
-from .simulator import RobotSimulator, SimulatorErrorCode, SimulatorState
+from .simulator import SUPPORTED_COMMANDS, RobotSimulator, SimulatorErrorCode, SimulatorState
 
-__all__ = ["MockRobotServer", "RobotSimulator", "SimulatorErrorCode", "SimulatorState"]
+__all__ = [
+    "MockRobotServer",
+    "RobotSimulator",
+    "SimulatorErrorCode",
+    "SimulatorState",
+    "SUPPORTED_COMMANDS",
+]

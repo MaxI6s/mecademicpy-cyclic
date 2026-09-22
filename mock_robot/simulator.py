@@ -44,21 +44,14 @@ __all__ = [
     "RobotSimulator",
     "SimulatorState",
     "SimulatorErrorCode",
-    "DEMO_MOTION_COMMAND_IDS",
+    "SUPPORTED_COMMANDS",
     "DEFAULT_FIFO_SPACE",
 ]
 
-#: Motion command identifiers used by the simulator and by the tests.
-#:
-#: **These are not the real identifiers.**  The EDS, the GSDML and the ESI all
-#: defer them to the programming manual, so deliberately implausible values are
-#: used here to make sure they are never mistaken for the real thing.  Fill the
-#: real ones into the ``motion_commands.ids`` section of the assembly
-#: specification once they are known.
-DEMO_MOTION_COMMAND_IDS: Dict[str, int] = {
-    "MoveJoints": 90001,
-    "MovePose": 90002,
-}
+#: Commands this simulator actually executes.  The specification lists every
+#: identifier the robot accepts; modelling them all is not the point of a mock,
+#: so anything else is reported as an unknown command.
+SUPPORTED_COMMANDS = frozenset({"MoveJoints", "MovePose", "MoveJointsVel"})
 
 #: Motion queue capacity the simulator advertises, matching the maximum the
 #: EDS declares for ``MotionStatus_FIFOSpace``.
@@ -122,8 +115,8 @@ class RobotSimulator:
             programming manual.
         home_position_deg: Joint angles reached at the end of homing.
         motion_command_ids: Command identifiers the simulator recognises.
-            Defaults to those of the I/O map, falling back to
-            :data:`DEMO_MOTION_COMMAND_IDS` when the specification defines none.
+            Defaults to those of the I/O map, restricted to
+            :data:`SUPPORTED_COMMANDS`.
         clock: Monotonic time source, injectable so tests can drive time.
 
     Example:
@@ -152,10 +145,14 @@ class RobotSimulator:
         self._clock = clock
         self._lock = threading.RLock()
 
-        if motion_command_ids is not None:
-            self._command_ids = dict(motion_command_ids)
-        else:
-            self._command_ids = io_map.motion_command_ids or dict(DEMO_MOTION_COMMAND_IDS)
+        declared = (
+            dict(motion_command_ids)
+            if motion_command_ids is not None
+            else io_map.motion_command_ids
+        )
+        self._command_ids = {
+            name: value for name, value in declared.items() if name in SUPPORTED_COMMANDS
+        }
         self._command_names = {value: name for name, value in self._command_ids.items()}
 
         self._home_position = (
@@ -184,6 +181,7 @@ class RobotSimulator:
         self._previous_move_id = 0
         self._previous_resume_motion = False
         self._last_advance: Optional[float] = None
+        self._joint_velocity: Optional[Tuple[float, ...]] = None
 
     # ------------------------------------------------------------------
     # Introspection
@@ -393,6 +391,21 @@ class RobotSimulator:
             self._state = SimulatorState.IDLE
             self._homed = True
             self._joints = self._home_position
+        elif self._joint_velocity is not None:
+            # A velocity-mode command is held: integrate it for as long as it
+            # stays held, rather than running towards a target.
+            if not self._paused:
+                self._joints = self._clamp(
+                    tuple(
+                        angle + speed * elapsed
+                        for angle, speed in zip(self._joints, self._joint_velocity)
+                    )
+                )
+            self._state = (
+                SimulatorState.MOVING
+                if any(speed for speed in self._joint_velocity) and not self._paused
+                else SimulatorState.IDLE
+            )
         elif self._state is SimulatorState.MOVING:
             if self._paused:
                 # Freeze the move by pushing both of its bounds forward.
@@ -445,6 +458,7 @@ class RobotSimulator:
             control: Motion control bits decoded from the output assembly.
         """
         if control.clear_move:
+            self._release_velocity()
             if self._state is SimulatorState.MOVING:
                 self._state = SimulatorState.IDLE
             self._cleared = True
@@ -468,9 +482,16 @@ class RobotSimulator:
             command: Motion command decoded from the output assembly.
             now: Current time.
         """
-        if not control.setpoint or control.move_id == 0:
+        if not control.setpoint:
             self._previous_move_id = control.move_id
+            self._release_velocity()
             return
+        if control.move_id == 0:
+            # Held rather than queued: this is a velocity-mode command.
+            self._previous_move_id = 0
+            self._apply_velocity_command(command)
+            return
+        self._release_velocity()
         if control.move_id == self._previous_move_id:
             return  # The scanner simply keeps producing the same image.
         self._previous_move_id = control.move_id
@@ -501,6 +522,53 @@ class RobotSimulator:
         )
         self._move_start_joints = self._joints
         self._move_target_joints = target
+
+    def _release_velocity(self) -> None:
+        """Stop holding a velocity-mode command, and settle the state machine.
+
+        Leaving the state at ``MOVING`` would hand the robot back to the
+        positional interpolation, which still points at whatever target the
+        last queued move had.
+        """
+        if self._joint_velocity is None:
+            return
+        self._joint_velocity = None
+        if self._state is SimulatorState.MOVING:
+            self._state = SimulatorState.IDLE
+
+    def _apply_velocity_command(self, command: MotionCommand) -> None:
+        """Hold, change or release a velocity-mode command.
+
+        Args:
+            command: Motion command decoded from the output assembly.
+        """
+        if command.command_id == 0:
+            self._release_velocity()
+            return
+        if self._state is SimulatorState.ERROR:
+            return
+        name = self._command_names.get(command.command_id)
+        if name != "MoveJointsVel":
+            # Either unknown, or a Cartesian velocity command this simulator
+            # does not model. TODO: model MoveLinVelWrf and MoveLinVelTrf.
+            self._enter_error(SimulatorErrorCode.UNKNOWN_MOTION_COMMAND)
+            return
+        if self._state not in (SimulatorState.IDLE, SimulatorState.MOVING):
+            self._enter_error(SimulatorErrorCode.MOVE_WITHOUT_HOMING)
+            return
+        self._joint_velocity = tuple(float(value) for value in command.arguments[:JOINT_COUNT])
+
+    def _clamp(self, joints: Sequence[float]) -> Tuple[float, ...]:
+        """Keep joint angles inside the simulated limits.
+
+        Args:
+            joints: Joint angles, in degrees.
+
+        Returns:
+            The angles, clamped.
+        """
+        lower, upper = self._joint_limits_deg
+        return tuple(min(max(angle, lower), upper) for angle in joints)
 
     def _resolve_target(self, name: str, command: MotionCommand) -> Tuple[float, ...]:
         """Convert a motion command into a joint target.

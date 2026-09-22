@@ -33,7 +33,7 @@ import os
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from dataclasses import fields
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, FrozenSet, List, Optional
 
 from ..exceptions import FieldbusSpecError
 from .codec import AssemblyCodec, FieldSpec
@@ -115,8 +115,10 @@ class AssemblySpec:
         config: Codec for the configuration assembly, possibly empty.
         connection: Connection parameters advertised by the vendor file.
         motion_commands: Identifiers accepted in the ``MotionCommand`` field,
-            keyed by command name.  Empty until filled in from the programming
-            manual, which is the only place that documents them.
+            keyed by command name.
+        velocity_mode_commands: Names of the commands that run continuously
+            while the move id is ``0``, instead of being queued when it
+            changes.
         source: Provenance of the layout: vendor file, revision, firmware.
         source_path: Path of the file this specification was loaded from.
     """
@@ -129,6 +131,7 @@ class AssemblySpec:
     config: AssemblyCodec
     connection: ConnectionProfile = ConnectionProfile()
     motion_commands: Dict[str, int] = dataclass_field(default_factory=dict)
+    velocity_mode_commands: FrozenSet[str] = frozenset()
     source: Dict[str, str] = dataclass_field(default_factory=dict)
     source_path: Optional[str] = None
 
@@ -220,6 +223,7 @@ def parse_spec(document: Dict[str, Any], source_path: Optional[str] = None) -> A
         config=codecs[_CONFIG],
         connection=_parse_connection(document.get("connection", {})),
         motion_commands=_parse_motion_commands(document.get("motion_commands", {})),
+        velocity_mode_commands=_parse_velocity_mode(document.get("motion_commands", {})),
         source=dict(document.get("source", {})),
         source_path=source_path,
     )
@@ -276,6 +280,30 @@ def _parse_motion_commands(document: Dict[str, Any]) -> Dict[str, int]:
             )
         commands[str(name)] = value
     return commands
+
+
+def _parse_velocity_mode(document: Dict[str, Any]) -> FrozenSet[str]:
+    """Extract the names of the velocity-mode commands.
+
+    Those run continuously while the move id is ``0``; queueing one the way a
+    positional command is queued fills the motion queue with a copy of it every
+    cycle, which the vendor documentation explicitly warns against.
+
+    Args:
+        document: Decoded ``motion_commands`` section, possibly empty.
+
+    Returns:
+        The command names, as a frozen set.
+
+    Raises:
+        FieldbusSpecError: If the section is malformed.
+    """
+    if not isinstance(document, dict):
+        raise FieldbusSpecError("'motion_commands' must be an object")
+    names = document.get("velocity_mode", [])
+    if not isinstance(names, list) or not all(isinstance(name, str) for name in names):
+        raise FieldbusSpecError("'motion_commands.velocity_mode' must be a list of names")
+    return frozenset(names)
 
 
 def _parse_assembly(name: str, document: Dict[str, Any], byte_order: str) -> AssemblyCodec:

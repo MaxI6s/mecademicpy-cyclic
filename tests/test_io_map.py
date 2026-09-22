@@ -379,13 +379,45 @@ def test_layout_carries_no_digital_io(io_map: IoMap) -> None:
         io_map.decode_output_state(io_map.empty_input_assembly())
 
 
-def test_motion_command_ids_are_not_published(io_map: IoMap) -> None:
-    """The vendor files do not publish the identifiers, so none is known."""
+def test_motion_command_ids_come_from_the_manual(io_map: IoMap) -> None:
+    """The identifiers transcribed from the programming manual are available.
+
+    No vendor definition file publishes them, so they are merged in from a
+    hand-maintained companion table; these few pin the transcription.
+    """
+    ids = io_map.motion_command_ids
+    assert ids["MoveJoints"] == 1
+    assert ids["MovePose"] == 2
+    assert ids["MoveLin"] == 3
+    assert ids["MoveJointsVel"] == 21
+    assert ids["SetCheckpoint"] == 17
+    assert ids["RebootRobot"] == 200
+    # Identifiers must be unique, or a command would shadow another.
+    assert len(set(ids.values())) == len(ids)
+
+
+def test_commands_unavailable_on_this_robot_are_not_offered(io_map: IoMap) -> None:
+    """The manual marks some identifiers as unsupported by this robot."""
+    assert "SetOutputState" not in io_map.motion_command_ids
+    assert "VacuumGrip" not in io_map.motion_command_ids
+    assert "MoveJump" not in io_map.motion_command_ids
+
+
+def test_velocity_mode_commands_are_flagged(io_map: IoMap) -> None:
+    """The commands that are held rather than queued are identified as such."""
+    assert io_map.velocity_mode_commands == frozenset(
+        {"MoveJointsVel", "MoveLinVelWrf", "MoveLinVelTrf"}
+    )
+    assert io_map.is_velocity_mode_command(io_map.motion_command_id("MoveJointsVel")) is True
+    assert io_map.is_velocity_mode_command(io_map.motion_command_id("MoveJoints")) is False
+
+
+def test_an_unknown_command_name_says_what_to_do(io_map: IoMap) -> None:
+    """Asking for a command the specification does not define fails clearly."""
     from mecademic_fieldbus.exceptions import FieldbusUnsupportedFeature
 
-    assert io_map.motion_command_ids == {}
     with pytest.raises(FieldbusUnsupportedFeature) as error:
-        io_map.motion_command_id("MoveJoints")
+        io_map.motion_command_id("NoSuchCommand")
     assert "motion_commands" in str(error.value)
 
 

@@ -30,6 +30,7 @@ no meaning has no place in a logical mapping.
 import argparse
 import collections
 import json
+import os
 import re
 import sys
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -456,13 +457,61 @@ def _expand_bit_field(
     return fields
 
 
-def build_spec(eds: EdsFile, assembly_version: str, source_name: str) -> Dict[str, Any]:
+#: Hand-maintained companion table merged into every generated specification.
+#: The motion command identifiers are the one part of the protocol no vendor
+#: definition file publishes, so they cannot be derived from the EDS.
+DEFAULT_MOTION_COMMANDS = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "motion_commands_v1.json"
+)
+
+
+def load_motion_commands(path: Optional[str]) -> Dict[str, Any]:
+    """Load the companion table of motion command identifiers.
+
+    Args:
+        path: File to read, or ``None`` to skip the merge.
+
+    Returns:
+        The section to place under ``motion_commands`` in the specification.
+
+    Raises:
+        ValueError: If the file is unreadable or not valid JSON.
+    """
+    if path is None:
+        return collections.OrderedDict(
+            [
+                (
+                    "description",
+                    "Identifiers accepted in the MotionCommand field of the output "
+                    "assembly, keyed by command name. No vendor definition file "
+                    "publishes them; see tools/motion_commands_v1.json.",
+                ),
+                ("ids", collections.OrderedDict()),
+            ]
+        )
+    try:
+        with open(path, "r") as handle:
+            return json.load(handle, object_pairs_hook=collections.OrderedDict)
+    except OSError as error:
+        raise ValueError("cannot read {}: {}".format(path, error))
+    except ValueError as error:
+        raise ValueError("invalid JSON in {}: {}".format(path, error))
+
+
+def build_spec(
+    eds: EdsFile,
+    assembly_version: str,
+    source_name: str,
+    motion_commands: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     """Build the complete specification document.
 
     Args:
         eds: Parsed EDS file.
         assembly_version: Version string to record in the specification.
         source_name: Name of the EDS file, recorded for traceability.
+        motion_commands: Companion table of motion command identifiers to merge
+            in, as returned by :func:`load_motion_commands`.
 
     Returns:
         The specification, ready to be serialised as JSON.
@@ -541,21 +590,7 @@ def build_spec(eds: EdsFile, assembly_version: str, source_name: str) -> Dict[st
                     ]
                 ),
             ),
-            (
-                "motion_commands",
-                collections.OrderedDict(
-                    [
-                        (
-                            "description",
-                            "Identifiers accepted in the MotionCommand field of the output "
-                            "assembly, keyed by command name. The EDS, the GSDML and the ESI "
-                            "all defer these to the programming manual, so they cannot be "
-                            "generated and must be filled in by hand.",
-                        ),
-                        ("ids", collections.OrderedDict()),
-                    ]
-                ),
-            ),
+            ("motion_commands", motion_commands or load_motion_commands(None)),
             (
                 "assemblies",
                 collections.OrderedDict(
@@ -624,14 +659,19 @@ def main(argv: Optional[List[str]] = None) -> int:
         default="1",
         help="assembly version to record in the specification (default: %(default)s)",
     )
+    parser.add_argument(
+        "--motion-commands",
+        default=DEFAULT_MOTION_COMMANDS,
+        help="companion table of motion command identifiers to merge in "
+        "(default: %(default)s); pass an empty string to leave it out",
+    )
     args = parser.parse_args(argv)
-
-    import os
 
     with open(args.eds, "r", errors="replace") as handle:
         eds = EdsFile(handle.read())
     try:
-        spec = build_spec(eds, args.assembly_version, os.path.basename(args.eds))
+        commands = load_motion_commands(args.motion_commands or None)
+        spec = build_spec(eds, args.assembly_version, os.path.basename(args.eds), commands)
     except (KeyError, ValueError) as error:
         print("cannot convert {}: {}".format(args.eds, error), file=sys.stderr)
         return 1
@@ -641,10 +681,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         with open(args.output, "w") as handle:
             handle.write(document)
         print(
-            "wrote {} ({} input fields, {} output fields)".format(
+            "wrote {} ({} input fields, {} output fields, {} motion commands)".format(
                 args.output,
                 len(spec["assemblies"]["input"]["fields"]),
                 len(spec["assemblies"]["output"]["fields"]),
+                len(spec["motion_commands"].get("ids", {})),
             )
         )
     else:

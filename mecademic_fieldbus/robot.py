@@ -407,9 +407,16 @@ class FieldbusRobot:
 
         Raises:
             FieldbusStateError: If the robot is not activated, homed and error
-                free, or if the connection may only monitor it.
+                free, if the connection may only monitor it, or if the command
+                is a velocity-mode one.
             FieldbusConnectionError: If the transport is not connected.
         """
+        if self._io_map.is_velocity_mode_command(command_id):
+            raise FieldbusStateError(
+                "command {} runs continuously and must be held rather than queued; "
+                "use StartVelocityCommand(). Queueing it would add a copy of it to "
+                "the motion queue every cycle".format(command_id)
+            )
         self._require_control()
         status = self.GetStatusRobot()
         if not status.is_ready:
@@ -469,40 +476,124 @@ class FieldbusRobot:
             )
         return self.SendMotionCommand(self._io_map.motion_command_id(MOVE_POSE_COMMAND), *pose)
 
-    def PauseMotion(self) -> None:
-        """Pause the robot immediately, without clearing its motion queue.
+    def StartVelocityCommand(self, command_id: int, *arguments: float) -> None:
+        """Hold a velocity-mode command, which the robot runs continuously.
+
+        Velocity-mode commands work the other way round from queued ones: they
+        are held with a move id of ``0`` and a set setpoint, and the robot
+        keeps applying them until the arguments change, the setpoint drops, or
+        its velocity timeout expires.  Call this again to change the velocity.
+
+        Args:
+            command_id: Identifier of a velocity-mode command, such as the one
+                registered under ``"MoveJointsVel"``.
+            *arguments: Up to six velocity arguments.
+
+        Raises:
+            FieldbusStateError: If the robot is not ready, if the connection
+                may only monitor it, or if the command is not a velocity-mode
+                one.
+            FieldbusConnectionError: If the transport is not connected.
+        """
+        if not self._io_map.is_velocity_mode_command(command_id):
+            raise FieldbusStateError(
+                "command {} is not a velocity-mode command; use SendMotionCommand() "
+                "so that it is queued once instead of being repeated every "
+                "cycle".format(command_id)
+            )
+        self._require_control()
+        status = self.GetStatusRobot()
+        if not status.is_ready:
+            raise FieldbusStateError(
+                "robot must be activated, homed and error free before moving "
+                "(activated={}, homed={}, error_code={})".format(
+                    status.activated, status.homed, status.error_code
+                )
+            )
+        self._output_image = self._io_map.encode_motion_command(
+            MotionCommand.build(command_id, arguments), self._output_image
+        )
+        # A move id of zero is what tells the robot to hold the command rather
+        # than queue it.
+        self._update_motion_control(setpoint=True, move_id=0)
+
+    def StopVelocityCommand(self) -> None:
+        """Stop a velocity-mode command and leave the robot at a standstill.
 
         Raises:
             FieldbusStateError: If the connection may only monitor the robot.
+            FieldbusConnectionError: If the transport is not connected.
+        """
+        self._require_control()
+        self._output_image = self._io_map.encode_motion_command(
+            MotionCommand.none(), self._output_image
+        )
+        self._update_motion_control(setpoint=False, move_id=0)
+
+    def PauseMotion(self, timeout_s: Optional[float] = None) -> None:
+        """Pause the robot immediately, without clearing its motion queue.
+
+        Args:
+            timeout_s: Time allowed for the robot to confirm the pause.
+
+        Raises:
+            FieldbusStateError: If the connection may only monitor the robot.
+            FieldbusTimeoutError: If the robot does not confirm in time.
             FieldbusConnectionError: If the transport is not connected.
         """
         self._require_control()
         self._update_motion_control(pause=True)
+        self._wait_for_motion(lambda motion: motion.paused, timeout_s, "robot did not pause")
 
-    def ResumeMotion(self) -> None:
+    def ResumeMotion(self, timeout_s: Optional[float] = None) -> None:
         """Resume motion after a pause.
 
         Unlike every other control bit this one acts on its rising edge only,
-        so it is pulsed: cleared first in case it was left set, then raised.
+        so it is pulsed: cleared first in case it was left set, raised, then
+        released once the robot confirms.  Resuming also clears the resettable
+        safety stops and the collision and work zone events.
+
+        Args:
+            timeout_s: Time allowed for the robot to confirm.
 
         Raises:
             FieldbusStateError: If the connection may only monitor the robot.
+            FieldbusTimeoutError: If the robot does not confirm in time.
             FieldbusConnectionError: If the transport is not connected.
         """
         self._require_control()
-        self._update_motion_control(pause=False, resume_motion=False)
+        self._update_motion_control(pause=False, clear_move=False, resume_motion=False)
         self._update_motion_control(resume_motion=True)
+        try:
+            self._wait_for_motion(
+                lambda motion: not motion.paused, timeout_s, "robot did not resume motion"
+            )
+        finally:
+            self._update_motion_control(resume_motion=False)
 
-    def ClearMotion(self) -> None:
+    def ClearMotion(self, timeout_s: Optional[float] = None) -> None:
         """Erase the queued motion commands and pause the robot.
+
+        The request is held until the robot confirms it, because while the bit
+        is set the robot refuses to queue anything; it is released afterwards
+        so that new commands can be queued, to run once motion is resumed.
+
+        Args:
+            timeout_s: Time allowed for the robot to confirm.
 
         Raises:
             FieldbusStateError: If the connection may only monitor the robot.
+            FieldbusTimeoutError: If the robot does not confirm in time.
             FieldbusConnectionError: If the transport is not connected.
         """
         self._require_control()
         self._update_motion_control(clear_move=True)
-        self._update_motion_control(clear_move=False)
+        try:
+            self._wait_for_motion(
+                lambda motion: motion.cleared, timeout_s, "robot did not clear its motion queue"
+            )
+        finally:
+            self._update_motion_control(clear_move=False)
 
     def WaitIdle(self, timeout_s: Optional[float] = None) -> None:
         """Wait for the robot to acknowledge the last command and stop moving.
@@ -654,6 +745,46 @@ class FieldbusRobot:
             if predicate(status):
                 return status
             if raise_on_robot_error and status.error_status:
+                raise RobotErrorStatus(
+                    "{}: the robot is in error".format(message), status.error_code
+                )
+            if time.monotonic() >= deadline:
+                raise FieldbusTimeoutError("{} within {:.1f} s".format(message, timeout))
+            time.sleep(self._poll_interval_s)
+
+    def _wait_for_motion(
+        self,
+        predicate: Callable[[MotionStatus], bool],
+        timeout_s: Optional[float],
+        message: str,
+    ) -> MotionStatus:
+        """Poll the input assembly until a motion status predicate holds.
+
+        The vendor documentation is explicit that a cycle count or a delay must
+        never stand in for the confirmation bit, which is why every motion
+        control command waits for one.
+
+        Args:
+            predicate: Condition to wait for.
+            timeout_s: Time allowed, or ``None`` for the robot default.
+            message: Message used when raising on timeout.
+
+        Returns:
+            The motion status that satisfied the predicate.
+
+        Raises:
+            FieldbusTimeoutError: If the predicate does not hold in time.
+            RobotErrorStatus: If the robot reports an error while waiting.
+        """
+        timeout = self._resolve_timeout(timeout_s)
+        deadline = time.monotonic() + timeout
+        while True:
+            raw_input = self._transport.read_input_assembly()
+            motion = self._io_map.decode_motion_status(raw_input)
+            if predicate(motion):
+                return motion
+            status = self._io_map.decode_status(raw_input)
+            if status.error_status:
                 raise RobotErrorStatus(
                     "{}: the robot is in error".format(message), status.error_code
                 )

@@ -101,10 +101,10 @@ def wait_until(predicate: Callable[[], bool], description: str, timeout_s: float
 
 
 @pytest.fixture
-def mock_server(demo_io_map: IoMap) -> MockRobotServer:
+def mock_server(io_map: IoMap) -> MockRobotServer:
     """Run a simulated robot on the loopback interface for one test."""
     require_standard_ports()
-    simulator = RobotSimulator(demo_io_map, activation_time_s=0.1, homing_time_s=0.2)
+    simulator = RobotSimulator(io_map, activation_time_s=0.1, homing_time_s=0.2)
     server = MockRobotServer(simulator, host=HOST)
     server.start()
     try:
@@ -114,12 +114,12 @@ def mock_server(demo_io_map: IoMap) -> MockRobotServer:
 
 
 @pytest.fixture
-def connected_robot(mock_server: MockRobotServer, demo_io_map: IoMap) -> FieldbusRobot:
+def connected_robot(mock_server: MockRobotServer, io_map: IoMap) -> FieldbusRobot:
     """Return a facade connected to the simulated robot over EtherNet/IP."""
     transport = EtherNetIpTransport.from_io_map(
-        demo_io_map, rpi_ms=RPI_MS, originator_udp_port=SCANNER_UDP_PORT
+        io_map, rpi_ms=RPI_MS, originator_udp_port=SCANNER_UDP_PORT
     )
-    robot = FieldbusRobot(transport, demo_io_map, default_timeout_s=10.0)
+    robot = FieldbusRobot(transport, io_map, default_timeout_s=10.0)
     robot.Connect(HOST)
     try:
         yield robot
@@ -139,23 +139,23 @@ def test_forward_open_succeeds(
     assert connected_robot.GetMotionStatus().fifo_space > 0
 
 
-def test_connect_fails_when_nothing_listens(demo_io_map: IoMap) -> None:
+def test_connect_fails_when_nothing_listens(io_map: IoMap) -> None:
     """Connecting to a closed port raises a connection error, not a crash."""
     require_standard_ports()
-    transport = EtherNetIpTransport.from_io_map(demo_io_map, originator_udp_port=SCANNER_UDP_PORT)
+    transport = EtherNetIpTransport.from_io_map(io_map, originator_udp_port=SCANNER_UDP_PORT)
     with pytest.raises(FieldbusConnectionError):
         transport.connect(HOST)
     assert transport.is_connected is False
 
 
 def test_forward_open_is_rejected_on_a_mismatched_assembly(
-    mock_server: MockRobotServer, demo_io_map: IoMap
+    mock_server: MockRobotServer, io_map: IoMap
 ) -> None:
     """A strict adapter refuses a scanner asking for unknown assembly instances."""
     transport = EtherNetIpTransport.from_io_map(
-        demo_io_map,
-        input_instance=demo_io_map.input_assembly_instance + 1,
-        output_instance=demo_io_map.output_assembly_instance + 1,
+        io_map,
+        input_instance=io_map.input_assembly_instance + 1,
+        output_instance=io_map.output_assembly_instance + 1,
         rpi_ms=RPI_MS,
         originator_udp_port=SCANNER_UDP_PORT,
     )
@@ -165,7 +165,7 @@ def test_forward_open_is_rejected_on_a_mismatched_assembly(
 
 
 def test_forward_open_is_rejected_on_a_mismatched_size(
-    mock_server: MockRobotServer, demo_io_map: IoMap
+    mock_server: MockRobotServer, io_map: IoMap
 ) -> None:
     """A scanner built on the wrong layout version is caught by the sizes.
 
@@ -174,8 +174,8 @@ def test_forward_open_is_rejected_on_a_mismatched_size(
     cannot open a connection at all.
     """
     transport = EtherNetIpTransport.from_io_map(
-        demo_io_map,
-        input_size=demo_io_map.input_assembly_size - 4,
+        io_map,
+        input_size=io_map.input_assembly_size - 4,
         rpi_ms=RPI_MS,
         originator_udp_port=SCANNER_UDP_PORT,
     )

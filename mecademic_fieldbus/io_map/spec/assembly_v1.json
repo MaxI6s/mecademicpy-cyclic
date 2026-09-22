@@ -24,8 +24,93 @@
     "minor_revision": 3
   },
   "motion_commands": {
-    "description": "Identifiers accepted in the MotionCommand field of the output assembly, keyed by command name. The EDS, the GSDML and the ESI all defer these to the programming manual, so they cannot be generated and must be filled in by hand.",
-    "ids": {}
+    "comment": "MotionCommandID values accepted by the Meca500 in the MotionCommand field of the cyclic output assembly. Transcribed by hand from Table 8 of the programming manual, because no vendor definition file publishes them: neither the EDS, the GSDML nor the ESI. tools/eds_to_spec.py merges this table into the generated specification.",
+    "source": {
+      "document": "Meca500 programming manual, 4. Communicating over cyclic protocols, Table 8",
+      "url": "https://resources.mecademic.com/en/doc/MC-PM-MECA500/latest/manual/communicating-over-cyclic-protocols.html",
+      "retrieved": "2026-09-22"
+    },
+    "notes": [
+      "A command is sent by changing MotionControl_MoveId to a new non-zero value while MotionControl_Setpoint is set.",
+      "The velocity-mode commands listed under 'velocity_mode' work the other way round: they run continuously while MoveId is 0 and Setpoint is 1. Queueing one by changing MoveId instead fills the motion queue with a copy every cycle.",
+      "Identifiers 10000 to 19999 set the robot variable whose cyclic id matches the identifier.",
+      "Commands marked '\u2020' in the manual take the same arguments, in the same order, as the TCP/IP command of the same name; extra arguments are ignored."
+    ],
+    "ids": {
+      "MoveJoints": 1,
+      "MovePose": 2,
+      "MoveLin": 3,
+      "MoveLinRelTrf": 4,
+      "MoveLinRelWrf": 5,
+      "Delay": 6,
+      "SetBlending": 7,
+      "SetJointVel": 8,
+      "SetJointAcc": 9,
+      "SetCartAngVel": 10,
+      "SetCartLinVel": 11,
+      "SetCartAcc": 12,
+      "SetTrf": 13,
+      "SetWrf": 14,
+      "SetConf": 15,
+      "SetAutoConf": 16,
+      "SetCheckpoint": 17,
+      "GripperAction": 18,
+      "SetGripperVel": 19,
+      "SetGripperForce": 20,
+      "MoveJointsVel": 21,
+      "MoveLinVelWrf": 22,
+      "MoveLinVelTrf": 23,
+      "SetVelTimeout": 24,
+      "SetConfTurn": 25,
+      "SetAutoConfTurn": 26,
+      "SetTorqueLimits": 27,
+      "SetTorqueLimitsCfg": 28,
+      "MoveJointsRel": 29,
+      "SetValveState": 30,
+      "SetGripperRange": 31,
+      "MoveGripper": 32,
+      "SetJointVelLimit": 33,
+      "SetTimeScaling": 48,
+      "SetMoveMode": 49,
+      "SetMoveDurationCfg": 50,
+      "SetMoveDuration": 51,
+      "SetPayload": 60,
+      "StartProgram": 100,
+      "SetJointLimits": 150,
+      "SetJointLimitsCfg": 151,
+      "SetWorkZoneCfg": 152,
+      "SetWorkZoneLimits": 153,
+      "SetCollisionCfg": 154,
+      "SetToolSphere": 155,
+      "SetCalibrationCfg": 156,
+      "RebootRobot": 200,
+      "ClearRobotHoming": 1002
+    },
+    "velocity_mode": [
+      "MoveJointsVel",
+      "MoveLinVelWrf",
+      "MoveLinVelTrf"
+    ],
+    "arguments": {
+      "GripperAction": "argument 1 is 0 to close the gripper, 1 to open it",
+      "ClearRobotHoming": "clears the homing, forcing drive reinitialisation on the next activation"
+    },
+    "not_available_on_this_robot": {
+      "SetOutputState": 34,
+      "SetOutputState_Immediate": 35,
+      "SetIoSim": 36,
+      "VacuumGrip": 37,
+      "VacuumGrip_Immediate": 38,
+      "VacuumRelease": 39,
+      "VacuumRelease_Immediate": 40,
+      "SetVacuumThreshold": 41,
+      "SetVacuumThreshold_Immediate": 42,
+      "SetVacuumPurgeDuration": 43,
+      "SetVacuumPurgeDuration_Immediate": 44,
+      "MoveJump": 45,
+      "SetMoveJumpHeight": 46,
+      "SetMoveJumpApproachVel": 47
+    }
   },
   "assemblies": {
     "input": {
