@@ -49,7 +49,17 @@ from mecademic_fieldbus.transports.ethernetip import EtherNetIpTransport  # noqa
 
 #: Joint target used by the demonstration move, in degrees.
 #: TODO: adjust to something safe for your cell before running on real hardware.
-DEMO_JOINT_TARGET = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+
+from random import randint
+
+OFFSET = 15
+DEMO_JOINT_TARGET = (randint(-OFFSET, OFFSET),
+                     randint(-OFFSET, OFFSET),
+                     randint(-OFFSET, OFFSET),
+                     randint(-OFFSET, OFFSET),
+                     randint(-OFFSET, OFFSET),
+                     randint(-OFFSET, OFFSET)
+                     )
 
 
 def build_parser() -> argparse.ArgumentParser:
