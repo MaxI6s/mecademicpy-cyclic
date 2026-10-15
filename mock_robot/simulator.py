@@ -27,8 +27,10 @@ from typing import Callable, Dict, Optional, Sequence, Tuple
 
 from mecademic_fieldbus.io_map.base import IoMap
 from mecademic_fieldbus.robot_classes import (
+    DYNAMIC_DATA_SLOTS,
     JOINT_COUNT,
     POSE_COUNT,
+    DynamicData,
     InverseKinematicsConfiguration,
     MotionCommand,
     MotionControl,
@@ -67,6 +69,27 @@ SUPPORTED_COMMANDS = frozenset(
         "SetJointVel",
     }
 )
+
+#: Lowest identifier that addresses a robot variable, in both the motion
+#: command field and the dynamic data configuration.
+VARIABLE_ID_FIRST = 10000
+
+#: Highest such identifier.
+VARIABLE_ID_LAST = 19999
+
+#: Dynamic data types this simulator actually fills in.  Any other type the
+#: specification declares is echoed back with zeroed values, which is honest:
+#: the mock does not pretend to measure what it does not model.
+MODELLED_DYNAMIC_TYPES = (
+    "FirmwareVersion",
+    "ActualJointPosition",
+    "ActualEndEffectorPose",
+    "MotionQueueVelocities",
+    "TimeScaling",
+)
+
+#: Firmware version the simulator reports, so the slot shows something real.
+SIMULATED_FIRMWARE = (11.0, 3.0, 3.0, 12637.0)
 
 #: Motion queue capacity the simulator advertises, matching the maximum the
 #: EDS declares for ``MotionStatus_FIFOSpace``.
@@ -195,9 +218,13 @@ class RobotSimulator:
         self._last_advance: Optional[float] = None
         self._joint_velocity: Optional[Tuple[float, ...]] = None
         self._dynamic_data_cycles = 0
+        self._dynamic_config: Tuple[int, ...] = tuple(0 for _ in range(DYNAMIC_DATA_SLOTS))
+        self._variables: Dict[int, Tuple[float, ...]] = {}
+        self._automatic_index = 0
         self._clock_offset_s = 0.0
         self._reached_checkpoint = 0
         self._velocity_percent = 100.0
+        self._offline_program_id = 0
 
     # ------------------------------------------------------------------
     # Introspection
@@ -259,7 +286,9 @@ class RobotSimulator:
         robot_control = self._io_map.decode_robot_control(raw_output)
         motion_control = self._io_map.decode_motion_control(raw_output)
         command = self._io_map.decode_motion_command(raw_output)
+        dynamic_config = self._io_map.decode_dynamic_config(raw_output)
         with self._lock:
+            self._dynamic_config = dynamic_config
             timestamp = self._clock() if now is None else now
             self._advance(timestamp)
             self._apply_robot_control(robot_control, timestamp)
@@ -283,6 +312,8 @@ class RobotSimulator:
             raw = self._io_map.encode_safety_status(self.get_safety_status(), raw)
             raw = self._io_map.encode_position(self.get_position(), raw)
             raw = self._io_map.encode_timestamp(self.get_timestamp(), raw)
+            for slot in range(DYNAMIC_DATA_SLOTS):
+                raw = self._io_map.encode_dynamic_data(slot, self.get_dynamic_data(slot), raw)
             return raw
 
     def update(self, now: Optional[float] = None) -> None:
@@ -346,7 +377,7 @@ class RobotSimulator:
                 discarded_checkpoint_id=0,
                 move_id=self._received_move_id,
                 fifo_space=DEFAULT_FIFO_SPACE - (1 if moving else 0),
-                offline_program_id=0,
+                offline_program_id=self._offline_program_id,
             )
 
     def get_safety_status(self) -> RobotSafetyStatus:
@@ -391,6 +422,84 @@ class RobotSimulator:
                 microseconds=int((now - int(now)) * 1000000),
                 dynamic_data_cycles=self._dynamic_data_cycles,
             )
+
+    def get_dynamic_data(self, slot: int) -> DynamicData:
+        """Return what this robot publishes in one dynamic data slot.
+
+        The requested type is echoed back whatever happens, so a scanner can
+        tell a stale slot from a fresh one.  Types the simulator does not model
+        come back with zeroed values rather than invented ones.
+
+        Args:
+            slot: Slot index, from ``0``.
+
+        Returns:
+            The payload to publish.
+        """
+        with self._lock:
+            requested = self._dynamic_config[slot]
+            type_id = self._resolve_dynamic_type(requested)
+            return DynamicData.build(type_id, self._dynamic_values(type_id))
+
+    def get_variable(self, cyclic_id: int) -> Tuple[float, ...]:
+        """Return the values of one robot variable.
+
+        Args:
+            cyclic_id: Identifier the variable was written under.
+
+        Returns:
+            Its values, or an empty tuple when it was never set.
+        """
+        with self._lock:
+            return self._variables.get(cyclic_id, ())
+
+    def _resolve_dynamic_type(self, requested: int) -> int:
+        """Turn a requested type into the one actually published.
+
+        Type ``0`` means "automatic": the real robot cycles through everything
+        it can report, a different type each cycle, and so does this.
+
+        Args:
+            requested: Type asked for in the output assembly.
+
+        Returns:
+            The type to publish.
+        """
+        if requested != 0:
+            return requested
+        names = MODELLED_DYNAMIC_TYPES
+        known = self._io_map.dynamic_data_types
+        available = [known[name] for name in names if name in known]
+        if not available:
+            return 0
+        self._automatic_index = (self._automatic_index + 1) % len(available)
+        return available[self._automatic_index]
+
+    def _dynamic_values(self, type_id: int) -> Tuple[float, ...]:
+        """Return the values to publish for one dynamic data type.
+
+        Args:
+            type_id: Type being published.
+
+        Returns:
+            Up to six values, empty for a type this simulator does not model.
+        """
+        if VARIABLE_ID_FIRST <= type_id <= VARIABLE_ID_LAST:
+            return self._variables.get(type_id, ())
+        known = self._io_map.dynamic_data_types
+        named = {value: name for name, value in known.items()}
+        name = named.get(type_id)
+        if name == "FirmwareVersion":
+            return SIMULATED_FIRMWARE
+        if name == "ActualJointPosition":
+            return self._joints
+        if name == "ActualEndEffectorPose":
+            return self._fake_forward_kinematics(self._joints)
+        if name == "MotionQueueVelocities":
+            return (self._velocity_percent, 100.0, 1000.0, 300.0, 100.0, 100.0)
+        if name == "TimeScaling":
+            return (100.0,)
+        return ()
 
     def get_position(self) -> RobotPosition:
         """Return the position feedback corresponding to the current state.
@@ -512,6 +621,8 @@ class RobotSimulator:
                 self._state = SimulatorState.IDLE
             self._cleared = True
             self._paused = True
+            # Emptying the queue abandons a running offline program with it.
+            self._offline_program_id = 0
         elif control.pause:
             self._paused = True
 
@@ -548,6 +659,11 @@ class RobotSimulator:
             return
 
         self._received_move_id = control.move_id
+        if VARIABLE_ID_FIRST <= command.command_id <= VARIABLE_ID_LAST:
+            # The manual gives this identifier range to variable writes; the
+            # arguments are the value.
+            self._variables[command.command_id] = tuple(command.arguments)
+            return
         name = self._command_names.get(command.command_id)
         if name is None:
             self._enter_error(SimulatorErrorCode.UNKNOWN_MOTION_COMMAND)
@@ -556,6 +672,13 @@ class RobotSimulator:
             self._enter_error(SimulatorErrorCode.MOVE_WITHOUT_HOMING)
             return
 
+        if name == "StartProgram":
+            # A real robot runs the stored program.  Nothing is stored here, so
+            # the simulator reports the number it was given and leaves it at
+            # that: a scanner sees the acknowledgement and the feedback field
+            # without the mock pretending to execute anything.
+            self._offline_program_id = int(command.arguments[0])
+            return
         if name in ("SetCheckpoint", "SetJointVel"):
             # Accepted and acknowledged without moving, like the real robot.
             self._apply_configuration_command(name, command)

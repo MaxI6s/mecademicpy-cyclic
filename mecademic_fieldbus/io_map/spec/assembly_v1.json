@@ -123,61 +123,71 @@
           "name": "RobotStatus_Busy",
           "type": "bool",
           "byte_offset": 0,
-          "bit_offset": 0
+          "bit_offset": 0,
+          "description": "Tells if the robot is busy (activating, deactivating, or homing)"
         },
         {
           "name": "RobotStatus_Activated",
           "type": "bool",
           "byte_offset": 0,
-          "bit_offset": 1
+          "bit_offset": 1,
+          "description": "Tells if the robot is actually activated (online, ready to home)"
         },
         {
           "name": "RobotStatus_Homed",
           "type": "bool",
           "byte_offset": 0,
-          "bit_offset": 2
+          "bit_offset": 2,
+          "description": "Tells if the robot has been homed and is ready to receive motion commands"
         },
         {
           "name": "RobotStatus_SimActivated",
           "type": "bool",
           "byte_offset": 0,
-          "bit_offset": 3
+          "bit_offset": 3,
+          "description": "Tells if the robot simulation mode is active (robot will react to commands normally, but not actually move)"
         },
         {
           "name": "RobotStatus_BrakesEngaged",
           "type": "bool",
           "byte_offset": 0,
-          "bit_offset": 4
+          "bit_offset": 4,
+          "description": "Tells if the brakes are engaged (only possible when robot is deactivated)"
         },
         {
           "name": "RobotStatus_RecoveryMode",
           "type": "bool",
           "byte_offset": 0,
-          "bit_offset": 5
+          "bit_offset": 5,
+          "description": "Tells if currently in recovery mode (robot will move slowly only, ignoring joint limits, without requiring homing)"
         },
         {
           "name": "RobotStatus_EStop",
           "type": "bool",
           "byte_offset": 0,
-          "bit_offset": 6
+          "bit_offset": 6,
+          "description": "Deprecated. Moved to SafetyStatus_Stop_EStop"
         },
         {
           "name": "RobotStatus_CollisionStatus",
           "type": "bool",
           "byte_offset": 0,
-          "bit_offset": 7
+          "bit_offset": 7,
+          "description": "Tells if the robot is in a collision event"
         },
         {
           "name": "RobotStatus_WorkZoneStatus",
           "type": "bool",
           "byte_offset": 1,
-          "bit_offset": 0
+          "bit_offset": 0,
+          "description": "Tells if the robot is outside its work zone"
         },
         {
           "name": "RobotStatus_MonitoringMode",
           "type": "bool",
           "byte_offset": 1,
-          "bit_offset": 1
+          "bit_offset": 1,
+          "description": "Indicates that the current cyclic connection only allows monitoring the robot, not controlling it"
         },
         {
           "name": "RobotStatus_Error",
@@ -213,37 +223,43 @@
           "name": "MotionStatus_Paused",
           "type": "bool",
           "byte_offset": 12,
-          "bit_offset": 0
+          "bit_offset": 0,
+          "description": "Indicates if the robot is actually paused"
         },
         {
           "name": "MotionStatus_EOB",
           "type": "bool",
           "byte_offset": 12,
-          "bit_offset": 1
+          "bit_offset": 1,
+          "description": "Indicates that the robot is not moving AND has no more commands left to process"
         },
         {
           "name": "MotionStatus_EOM",
           "type": "bool",
           "byte_offset": 12,
-          "bit_offset": 2
+          "bit_offset": 2,
+          "description": "Indicates that the robot is not moving (though queue may still contain commands)"
         },
         {
           "name": "MotionStatus_Cleared",
           "type": "bool",
           "byte_offset": 12,
-          "bit_offset": 3
+          "bit_offset": 3,
+          "description": "Indicates that the robot command queue has been cleared"
         },
         {
           "name": "MotionStatus_PStop2",
           "type": "bool",
           "byte_offset": 12,
-          "bit_offset": 4
+          "bit_offset": 4,
+          "description": "Deprecated. Moved to SafetyStatus_Stop_PStop2"
         },
         {
           "name": "MotionStatus_ExcessiveTorque",
           "type": "bool",
           "byte_offset": 12,
-          "bit_offset": 5
+          "bit_offset": 5,
+          "description": "Indicates that the robot detects excessive torque"
         },
         {
           "name": "MotionStatus_OfflineProgramId",
@@ -467,61 +483,71 @@
           "name": "StopMask_EStop",
           "type": "bool",
           "byte_offset": 128,
-          "bit_offset": 0
+          "bit_offset": 0,
+          "description": "Power supply has detected a EStop (emergency stop) signal"
         },
         {
           "name": "StopMask_PStop2",
           "type": "bool",
           "byte_offset": 128,
-          "bit_offset": 2
+          "bit_offset": 2,
+          "description": "Power supply has detected a SwStop (software stop) signal"
         },
         {
           "name": "StopMask_Reboot",
           "type": "bool",
           "byte_offset": 128,
-          "bit_offset": 7
+          "bit_offset": 7,
+          "description": "Robot just rebooted, causing motor voltage disable"
         },
         {
           "name": "StopMask_ConnectionDropped",
           "type": "bool",
           "byte_offset": 129,
-          "bit_offset": 2
+          "bit_offset": 2,
+          "description": "Control connection with host lost while robot was not idle, or while the connection timer is active"
         },
         {
           "name": "StopResettableMask_EStop",
           "type": "bool",
           "byte_offset": 132,
-          "bit_offset": 0
+          "bit_offset": 0,
+          "description": "Reset possible, power supply no more detects a EStop (emergency stop) signal"
         },
         {
           "name": "StopResettableMask_PStop2",
           "type": "bool",
           "byte_offset": 132,
-          "bit_offset": 2
+          "bit_offset": 2,
+          "description": "ResumeMotion possible, power supply no more detects a SwStop (software stop) signal"
         },
         {
           "name": "StopResettableMask_Reboot",
           "type": "bool",
           "byte_offset": 132,
-          "bit_offset": 7
+          "bit_offset": 7,
+          "description": "Reset possible to re-enable motor voltage after reboot"
         },
         {
           "name": "StopResettableMask_ConnectionDropped",
           "type": "bool",
           "byte_offset": 133,
-          "bit_offset": 2
+          "bit_offset": 2,
+          "description": "ResumeMotion possible, control connection with host re-established"
         },
         {
           "name": "SafetyStatus_State_ResetReady",
           "type": "bool",
           "byte_offset": 137,
-          "bit_offset": 0
+          "bit_offset": 0,
+          "description": "Safety stop conditions can now be reset using the power supply Reset function"
         },
         {
           "name": "SafetyStatus_State_VMotorOn",
           "type": "bool",
           "byte_offset": 137,
-          "bit_offset": 1
+          "bit_offset": 1,
+          "description": "Motor voltage state (0=off, 1=on)"
         },
         {
           "name": "DynamicType0",
@@ -703,37 +729,43 @@
           "name": "RobotControl_Deactivate",
           "type": "bool",
           "byte_offset": 0,
-          "bit_offset": 0
+          "bit_offset": 0,
+          "description": "As soon (and as long as) this boolean is set, the robot will deactivate itself"
         },
         {
           "name": "RobotControl_Activate",
           "type": "bool",
           "byte_offset": 0,
-          "bit_offset": 1
+          "bit_offset": 1,
+          "description": "As soon (and as long as) this boolean is set, the robot will activate itself, unless deactivate bit is set"
         },
         {
           "name": "RobotControl_Home",
           "type": "bool",
           "byte_offset": 0,
-          "bit_offset": 2
+          "bit_offset": 2,
+          "description": "As soon (and as long as) this boolean is set, the robot will find home position after it's activated"
         },
         {
           "name": "RobotControl_ResetError",
           "type": "bool",
           "byte_offset": 0,
-          "bit_offset": 3
+          "bit_offset": 3,
+          "description": "As soon (and as long as) this boolean is set, the last robot error will be cleared"
         },
         {
           "name": "RobotControl_EnableSimulation",
           "type": "bool",
           "byte_offset": 0,
-          "bit_offset": 4
+          "bit_offset": 4,
+          "description": "If set while robot is deactivated, this boolean enables the robot simulation mode (robot will react to commands normally, but not actually move)"
         },
         {
           "name": "RobotControl_EnableRecoveryMode",
           "type": "bool",
           "byte_offset": 0,
-          "bit_offset": 5
+          "bit_offset": 5,
+          "description": "This boolean enables the robot recovery mode (robot will move slowly only, ignoring joint limits, without requiring homing)"
         },
         {
           "name": "MotionControl_MoveId",
@@ -745,31 +777,36 @@
           "name": "MotionControl_Setpoint",
           "type": "bool",
           "byte_offset": 6,
-          "bit_offset": 0
+          "bit_offset": 0,
+          "description": "Bit that must be set to 1 when current output contains a command to be executed by the robot. If this bit is cleared (0), robot ignores any move information in that output"
         },
         {
           "name": "MotionControl_Pause",
           "type": "bool",
           "byte_offset": 6,
-          "bit_offset": 1
+          "bit_offset": 1,
+          "description": "Pause the robot immediately, without clearing the motion queue"
         },
         {
           "name": "MotionControl_ClearMove",
           "type": "bool",
           "byte_offset": 6,
-          "bit_offset": 2
+          "bit_offset": 2,
+          "description": "Erases the motion commands in the queue and puts the robot in pause"
         },
         {
           "name": "MotionControl_ResumeMotion",
           "type": "bool",
           "byte_offset": 6,
-          "bit_offset": 3
+          "bit_offset": 3,
+          "description": "Resume robot motion (upon rising edge of this bit only)"
         },
         {
           "name": "MotionControl_UseVariables",
           "type": "bool",
           "byte_offset": 6,
-          "bit_offset": 4
+          "bit_offset": 4,
+          "description": "Interpret MotionCommand arguments as cyclic ID of variables to use as arguments for the executed command"
         },
         {
           "name": "MotionCommand",
@@ -823,13 +860,15 @@
           "name": "Brakes_ControlAllowed",
           "type": "bool",
           "byte_offset": 40,
-          "bit_offset": 0
+          "bit_offset": 0,
+          "description": "Set to 1 to allow brakes control from the cyclic data. Other fields from this struct are ignored if this bit is 0"
         },
         {
           "name": "Brakes_Engaged",
           "type": "bool",
           "byte_offset": 40,
-          "bit_offset": 1
+          "bit_offset": 1,
+          "description": "Control brakes state when robot is powered but deactivated. Set to 1 to engage brakes, 0 to disengage. This bit is ignored if ControlAllowed is 0"
         },
         {
           "name": "DynamicTypeCfg0",
@@ -863,6 +902,80 @@
       "size_bytes": 0,
       "description": "The robot connection path carries no configuration assembly; the Forward Open must not include one.",
       "fields": []
+    }
+  },
+  "dynamic_data_types": {
+    "comment": "DynamicDataTypeID values accepted in DynamicTypeCfg0..3 of the output assembly. The robot echoes the type back in DynamicType0..3 and publishes up to six floats in the matching DynamicData slot. Transcribed by hand from Table 12 of the programming manual: no vendor definition file publishes them, exactly as with the motion command identifiers. tools/eds_to_spec.py and tools/update_dynamic_data_types.py merge this table into the specification.",
+    "source": {
+      "document": "Meca500 programming manual, 4.4.6 Dynamic data configuration, Table 12",
+      "url": "https://resources.mecademic.com/en/doc/MC-PM-MECA500/latest/manual/communicating-over-cyclic-protocols.html",
+      "retrieved": "2026-09-22"
+    },
+    "notes": [
+      "Type 0 is Automatic: the robot cycles through every available type, a different one each cycle, which is the easiest way to receive everything periodically.",
+      "Every type returns six values; the unused ones are zero.",
+      "Identifiers 10000 to 19999 report the robot variable whose cyclic id matches, which is how Get variable works.",
+      "No type exists for information already carried by a dedicated field, such as the target joint set or the target end-effector pose."
+    ],
+    "ids": {
+      "Automatic": 0,
+      "FirmwareVersion": 1,
+      "ProductType": 2,
+      "SerialNumber": 3,
+      "JointLimitsConfiguration": 11,
+      "ModelJointLimits123": 12,
+      "ModelJointLimits456": 13,
+      "EffectiveJointLimits123": 14,
+      "EffectiveJointLimits456": 15,
+      "WorkZoneConfiguration": 17,
+      "WorkZoneLimits": 18,
+      "ToolSphere": 19,
+      "ConfAndConfTurn": 20,
+      "MotionQueueParameters": 21,
+      "MotionQueueVelocities": 22,
+      "GripperParameters": 23,
+      "TorqueLimitsConfiguration": 24,
+      "TorqueLimits": 25,
+      "VacuumConfiguration": 26,
+      "MoveModeConfiguration": 29,
+      "CalibrationStatus": 30,
+      "Payload": 31,
+      "TargetJointVelocity": 32,
+      "TargetJointTorque": 33,
+      "TargetCartesianVelocity": 34,
+      "CollisionConfiguration": 36,
+      "CollisionStatus": 37,
+      "WorkZoneStatus": 38,
+      "ActualJointPosition": 40,
+      "ActualEndEffectorPose": 41,
+      "ActualJointVelocity": 42,
+      "ActualJointTorque": 43,
+      "ActualCartesianVelocity": 44,
+      "ActualConfAndConfTurn": 45,
+      "Accelerometer": 46,
+      "ExternalToolStatus": 52,
+      "EndOfArmToolStatus": 53,
+      "TimeScaling": 54,
+      "ConfiguredJointLimits123": 61,
+      "ConfiguredJointLimits456": 62
+    },
+    "descriptions": {
+      "Automatic": "The robot chooses a type and changes it every cycle, going through all of them in a round-robin manner",
+      "FirmwareVersion": "major, minor, patch, build",
+      "ActualJointPosition": "Measured joint angles, in degrees",
+      "ActualEndEffectorPose": "Measured pose x, y, z, alpha, beta, gamma",
+      "ActualJointVelocity": "Measured joint velocities, in degrees per second",
+      "ActualJointTorque": "Measured joint torques, in percent",
+      "MotionQueueVelocities": "joint velocity, joint acceleration, Cartesian linear velocity, Cartesian angular velocity, Cartesian acceleration, joint velocity limit, all in percent",
+      "TimeScaling": "Time scaling, in percent"
+    },
+    "variable_id_range": [
+      10000,
+      19999
+    ],
+    "not_available_on_this_robot": {
+      "MoveJumpHeight": 27,
+      "MoveJumpApproachVelocity": 28
     }
   }
 }

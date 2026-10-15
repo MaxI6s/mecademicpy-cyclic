@@ -33,7 +33,7 @@ import json
 import os
 import re
 import sys
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 #: CIP elementary data types, mapped to the type names used by the codec.
 CIP_TYPE_NAMES = {
@@ -498,11 +498,83 @@ def load_motion_commands(path: Optional[str]) -> Dict[str, Any]:
         raise ValueError("invalid JSON in {}: {}".format(path, error))
 
 
+#: Hand-maintained companion table of dynamic data type identifiers, which no
+#: vendor definition file publishes either.
+DEFAULT_DYNAMIC_DATA_TYPES = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "dynamic_data_types_v1.json"
+)
+
+#: Hand-maintained companion table of per-field documentation.  The EDS keeps
+#: the help text of its CIP bit strings in comments this parser strips, so the
+#: boolean fields would otherwise come out undocumented.
+DEFAULT_FIELD_DOCS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "field_docs_v1.json")
+
+
+def load_field_docs(path: Optional[str]) -> Dict[str, Any]:
+    """Load the companion table of per-field documentation.
+
+    Args:
+        path: File to read, or ``None`` to skip the merge.
+
+    Returns:
+        A mapping of field name to the keys to apply, empty when skipped.
+
+    Raises:
+        ValueError: If the file is unreadable, not valid JSON, or malformed.
+    """
+    if path is None:
+        return {}
+    try:
+        with open(path, "r") as handle:
+            document = json.load(handle)
+    except OSError as error:
+        raise ValueError("cannot read {}: {}".format(path, error))
+    except ValueError as error:
+        raise ValueError("invalid JSON in {}: {}".format(path, error))
+    fields = document.get("fields", {})
+    if not isinstance(fields, dict):
+        raise ValueError("{}: 'fields' must be an object".format(path))
+    return fields
+
+
+def apply_field_docs(
+    fields: List[Dict[str, Any]], docs: Dict[str, Any]
+) -> Tuple[Set[str], List[str]]:
+    """Merge the companion documentation into one assembly's fields.
+
+    The companion table wins over whatever the EDS said, because it is the
+    curated source.  Only ``description`` and ``unit`` are applied, which keeps
+    this a 1:1 projection onto the field specification and means documentation
+    can never move an offset.
+
+    Args:
+        fields: Field descriptions of one assembly, updated in place.
+        docs: Companion table, keyed by field name.
+
+    Returns:
+        A tuple ``(names used, names still undocumented)``.
+    """
+    used: Set[str] = set()
+    undocumented: List[str] = []
+    for field in fields:
+        entry = docs.get(field["name"])
+        if entry:
+            used.add(field["name"])
+            for key in ("description", "unit"):
+                if entry.get(key):
+                    field[key] = entry[key]
+        if not field.get("description"):
+            undocumented.append(field["name"])
+    return used, undocumented
+
+
 def build_spec(
     eds: EdsFile,
     assembly_version: str,
     source_name: str,
     motion_commands: Optional[Dict[str, Any]] = None,
+    field_docs: Optional[Dict[str, Any]] = None,
+    dynamic_data_types: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Build the complete specification document.
 
@@ -512,6 +584,9 @@ def build_spec(
         source_name: Name of the EDS file, recorded for traceability.
         motion_commands: Companion table of motion command identifiers to merge
             in, as returned by :func:`load_motion_commands`.
+        field_docs: Companion table of per-field documentation to merge in, as
+            returned by :func:`load_field_docs`.
+        dynamic_data_types: Companion table of dynamic data type identifiers.
 
     Returns:
         The specification, ready to be serialised as JSON.
@@ -530,6 +605,11 @@ def build_spec(
 
     input_fields = build_fields(eds, eds.assemblies["Assem1"]["members"])
     output_fields = build_fields(eds, eds.assemblies["Assem2"]["members"])
+
+    docs = field_docs or {}
+    used_in, undocumented_in = apply_field_docs(input_fields, docs)
+    used_out, undocumented_out = apply_field_docs(output_fields, docs)
+    report_field_docs(docs, used_in | used_out, undocumented_in + undocumented_out)
 
     for label, members, declared in (
         ("input", eds.assemblies["Assem1"]["members"], connection["input_size_bytes"]),
@@ -591,6 +671,7 @@ def build_spec(
                 ),
             ),
             ("motion_commands", motion_commands or load_motion_commands(None)),
+            ("dynamic_data_types", dynamic_data_types or {"ids": collections.OrderedDict()}),
             (
                 "assemblies",
                 collections.OrderedDict(
@@ -642,6 +723,35 @@ def build_spec(
     )
 
 
+def report_field_docs(docs: Dict[str, Any], used: Set[str], undocumented: Sequence[str]) -> None:
+    """Warn about a companion table that has drifted from the layout.
+
+    These two warnings are what makes the table survive a regeneration against
+    a newer EDS: an entry that matches nothing means a typo or a renamed field,
+    and a field with no documentation left means the table needs an entry.
+
+    Args:
+        docs: Companion table that was applied.
+        used: Field names the table actually matched.
+        undocumented: Field names still carrying no description.
+    """
+    unmatched = sorted(set(docs) - used)
+    if unmatched:
+        print(
+            "warning: {} documentation entr{} matched no field: {}".format(
+                len(unmatched), "y" if len(unmatched) == 1 else "ies", ", ".join(unmatched)
+            ),
+            file=sys.stderr,
+        )
+    if undocumented:
+        print(
+            "warning: {} field(s) have no description: {}".format(
+                len(undocumented), ", ".join(sorted(undocumented))
+            ),
+            file=sys.stderr,
+        )
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     """Generate a specification file from an EDS.
 
@@ -665,13 +775,26 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="companion table of motion command identifiers to merge in "
         "(default: %(default)s); pass an empty string to leave it out",
     )
+    parser.add_argument(
+        "--dynamic-data-types",
+        default=DEFAULT_DYNAMIC_DATA_TYPES,
+        help="companion table of dynamic data type identifiers to merge in "
+        "(default: %(default)s); pass an empty string to leave it out",
+    )
+    parser.add_argument(
+        "--field-docs",
+        default=DEFAULT_FIELD_DOCS,
+        help="companion table of per-field documentation to merge in "
+        "(default: %(default)s); pass an empty string to leave it out",
+    )
     args = parser.parse_args(argv)
 
     with open(args.eds, "r", errors="replace") as handle:
         eds = EdsFile(handle.read())
     try:
         commands = load_motion_commands(args.motion_commands or None)
-        spec = build_spec(eds, args.assembly_version, os.path.basename(args.eds), commands)
+        docs = load_field_docs(args.field_docs or None)
+        spec = build_spec(eds, args.assembly_version, os.path.basename(args.eds), commands, docs)
     except (KeyError, ValueError) as error:
         print("cannot convert {}: {}".format(args.eds, error), file=sys.stderr)
         return 1

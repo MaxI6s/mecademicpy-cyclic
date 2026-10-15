@@ -5,6 +5,8 @@ Two levels of mocking are available, for two different needs:
 * :class:`~mock_robot.simulator.RobotSimulator` -- an in-memory state machine
   that consumes and produces real assembly images.  Combined with an in-memory
   transport it gives fast, deterministic unit tests with no network at all.
+* :class:`~mock_robot.loopback.LoopbackTransport` -- the simulator wired
+  straight to the facade, with no socket and no protocol at all.
 * :class:`~mock_robot.server.MockRobotServer` -- a minimal EtherNet/IP adapter
   that puts the simulator on the network, so the real
   :class:`~mecademic_fieldbus.transports.ethernetip.EtherNetIpTransport` can be
@@ -18,10 +20,12 @@ Run it standalone with::
     python -m mock_robot --help
 """
 
+from .loopback import LoopbackTransport
 from .server import MockRobotServer
 from .simulator import SUPPORTED_COMMANDS, RobotSimulator, SimulatorErrorCode, SimulatorState
 
 __all__ = [
+    "LoopbackTransport",
     "MockRobotServer",
     "RobotSimulator",
     "SimulatorErrorCode",

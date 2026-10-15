@@ -155,6 +155,34 @@ There is no request/response here, and the vendor semantics are specific:
   the manual is explicit about it — so `PauseMotion`, `ResumeMotion` and
   `ClearMotion` wait for their confirmation before returning.
 
+### Reading what the fixed fields do not carry
+
+The 252 input bytes hold the target position, not the measured one, and nothing
+about torques, limits or the gripper. Those come through the four **dynamic data
+slots**: write a type identifier into `DynamicTypeCfg0..3`, and the robot echoes
+it back in `DynamicType0..3` with up to six values alongside it.
+
+```python
+robot.SetDynamicDataTypes("ActualJointPosition", "FirmwareVersion")
+print(robot.GetDynamicData(0).values)      # measured joint angles
+print(robot.GetDynamicData(1).values)      # 11.0, 3.0, 3.0, 12637.0, ...
+```
+
+Always check the echoed type before trusting the values: a change takes a cycle
+or two to take effect, and type `0` means *automatic*, where the robot cycles
+through every type it can report, one per cycle. `GetDynamicData` returns a
+`DynamicData` carrying both, so the check is `data.type_id`.
+
+The same slots read **robot variables**. Identifiers 10000–19999 address a
+variable rather than a command, in both directions: write one through
+`SendMotionCommand`, read it back through a slot.
+
+```python
+robot.SendMotionCommand(10001, 1.5, 2.5, 3.5)   # write variable 10001
+robot.SetDynamicDataTypes(10001)
+print(robot.GetDynamicData(0).values[:3])       # (1.5, 2.5, 3.5)
+```
+
 ## Repository layout
 
 ```
@@ -174,10 +202,13 @@ mecademic_fieldbus/
 mock_robot/
     simulator.py              robot state machine, shares the same io_map
     server.py                 minimal EtherNet/IP adapter, raw sockets
+    loopback.py               the simulator wired straight to the facade
 tools/
     eds_to_spec.py            regenerates the spec from a vendor EDS
     motion_commands_v1.json   command ids, transcribed from the manual
-    update_motion_commands.py merges that table into the spec, no EDS needed
+    field_docs_v1.json        per-field documentation, from the vendor GSDML
+    dynamic_data_types_v1.json dynamic data type ids, from the manual
+    update_companion_tables.py merges all three into the spec, no EDS needed
     make_fixtures.py          regenerates the golden test vectors
     eip_originator.py         dependency-free CIP originator, for diagnosis
     diagnose_connection.py    finds out why a robot produces nothing
@@ -203,15 +234,29 @@ field per named bit, drops the reserved and unused ones, and computes every
 offset from the ordered member list. It fails loudly if the member sizes
 contradict the connection sizes the EDS declares.
 
-One thing it cannot generate: the **motion command identifiers**. No vendor
-definition file publishes them — not the EDS, not the GSDML, not the ESI — so
-they live in a hand-maintained companion table, `tools/motion_commands_v1.json`,
-transcribed from Table 8 of the programming manual and merged into the same
-specification file. When only that table changes, no EDS is needed:
+Three things it cannot generate, because **no vendor definition file publishes
+them** — not the EDS, not the GSDML, not the ESI. Each lives in a
+hand-maintained companion table next to the generator, carrying its own
+provenance, and is merged into the same specification file:
+
+| table | what it holds | source |
+| --- | --- | --- |
+| `tools/motion_commands_v1.json` | the 48 motion command identifiers | Table 8 of the programming manual |
+| `tools/dynamic_data_types_v1.json` | the 40 dynamic data type identifiers | Table 12 of the programming manual |
+| `tools/field_docs_v1.json` | a description for each of the 39 boolean fields | the vendor GSDML |
+
+The last one exists because the EDS keeps the help text of its CIP bit strings
+in comments the parser strips, so every boolean field would otherwise come out
+undocumented. When only these tables change, no EDS is needed:
 
 ```bash
-python tools/update_motion_commands.py
+python tools/update_companion_tables.py
 ```
+
+It warns when a companion entry matches no field (a typo, or a renamed field)
+and when a field is left with no description, and `test_every_field_is_documented`
+keeps it that way. Documentation only ever touches `description` and `unit`, so
+it can never move an offset — the golden byte vectors are the proof.
 
 What it produces for firmware 11.3:
 
@@ -223,6 +268,22 @@ What it produces for firmware 11.3:
 | Real-time format | O→T 32-bit run/idle header, T→O modeless |
 | RPI | min **10 ms**, max 10 s, default 10 ms |
 | Electronic key | vendor 1565, product type 43, product code 500, rev 11.3 |
+
+Tools that render their own view of the layout — a dashboard, a report — get it
+as **data** rather than parsing the text:
+
+```python
+io_map = get_io_map()
+described = io_map.describe_assembly("input")      # AssemblyDescription
+described.size_bytes, described.run_idle_header    # 252, False
+for field in described.fields:                     # FieldSpec: offsets, type, unit, description
+    ...
+io_map.decode_all("input", raw)                    # every field at once, by name
+```
+
+`describe_layout()` is rendered from exactly that, so the text view and the
+structured view cannot drift apart. A caller that *consumes* offsets from here
+still honours the central rule; one that hard-codes them does not.
 
 Inspect the whole layout with:
 
@@ -321,8 +382,10 @@ ignoring it.
 **What "tested" means.** The robot *accepts* the command and acknowledges its
 move id — which catches a wrong identifier, a wrong argument count, and a
 command the firmware rejects. It does not confirm the *effect* of a setting,
-because the input assembly carries no settings back; that needs the dynamic data
-slots, which this library does not surface yet. Where an effect *is* observable
+because the input assembly carries no settings back. Reading them back is what
+the dynamic data slots are for — `SetDynamicDataTypes` / `GetDynamicData` now
+expose them, though the per-command assertions have yet to be written against
+that route. Where an effect *is* observable
 with what the assembly carries, there is a dedicated test for it:
 `SetCheckpoint` comes back as `CheckpointReached`, `Delay` holds the queue
 without moving an axis, the move commands are checked against the reported
@@ -458,6 +521,18 @@ EtherNetIpTransport.from_io_map(io_map, originator_udp_port=0)
 This only works because the mock honours the socket address item. Never use it
 against hardware that has not been checked with the tool above.
 
+## Training and demo tools
+
+The live tag dashboard and the narrated command walkthrough live in a sibling
+repository, [`mecademic-fieldbus-training`](../mecademic-fieldbus-training),
+which consumes this library rather than extending it. That keeps this repo to
+the library, its simulator and its own tooling — and makes the toolkit a working
+proof that the public API is usable from outside.
+
+What stays here is what a consumer cannot add from outside: the structured
+introspection API above, the per-field documentation, and
+`mock_robot.LoopbackTransport`.
+
 ## Open decisions
 
 Everything below is marked `# TODO` in the code:
@@ -466,8 +541,9 @@ Everything below is marked `# TODO` in the code:
 | --- | --- |
 | **Error codes** | `RobotStatus_Error` is documented as "refer to the programming manual"; the table is not in any protocol file. The simulator invents codes in the 32000s to stay inside the field. |
 | **Digital I/O** | The cyclic assemblies carry none — the manual confirms it, listing `SetOutputState` (34) as *not available on this robot*. `SetOutputState`/`GetRtOutputState` raise `FieldbusUnsupportedFeature`. |
-| **Dynamic data slots** | `DynamicTypeCfg0..3` select what the robot publishes in `DynamicData0..3`; the manual's Table 12 lists ~50 type codes (joint torques, limits, gripper state, collision status…). Present in the spec, not yet surfaced in the facade — this is the natural next increment. |
-| **Command read-back** | Settings are confirmed by acknowledgement only. Reading them back — and with them the joint torques, the actual positions, the gripper state — needs the four `DynamicData` slots. That is the one capability standing between the command suite and full verification. |
+| **Monitoring-only connection** | Only the exclusive-owner connection is implemented, so a scanner cannot watch a cell while someone else's PLC drives it — the robot refuses a second owner. The robot's EDS declares an input-only connection (path `20 02 2C 64`, O→T heartbeat) and the library already decodes `RobotStatus_MonitoringMode` and honours it in `_require_control()`; the gap is a read-only transport. `ethernetip` 1.2.0 cannot do it, but `tools/eip_originator.py` already takes an arbitrary connection path. |
+| **Command read-back** | The command suite confirms settings by acknowledgement; verifying their *effect* now has a route through the dynamic data slots, but the per-command assertions have not been written against it. |
+| **Variable writes and homing** | A write to a robot variable goes through `SendMotionCommand`, which refuses unless the robot is activated, homed and error free. At the protocol level the write lands on a robot that is merely activated — the training sequence does exactly that — so the facade is stricter than the wire here. Whether a real robot agrees is unverified, and loosening a safety gate on an assumption is the wrong direction, so it stays until it can be tested on hardware. |
 | **Command wrappers** | All 48 identifiers are reachable through `SendMotionCommand`, but only `MoveJoints` and `MovePose` have a named wrapper. |
 | **Socket address item** | Whether the robot honours the T→O socket address item is still unconfirmed on hardware; the scanner listens on 2222 by default so that it does not matter. See [Troubleshooting](#troubleshooting). |
 | **Connection watchdog** | The mock does not drop the connection when the scanner stops producing, and never sets `StopMask_ConnectionDropped`. |

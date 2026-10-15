@@ -20,13 +20,23 @@ editing the JSON by hand.
 from typing import Dict, Optional, Type
 
 from ..exceptions import FieldbusSpecError
-from .base import IoMap
+from .base import (
+    CONFIG_ASSEMBLY,
+    INPUT_ASSEMBLY,
+    OUTPUT_ASSEMBLY,
+    AssemblyDescription,
+    IoMap,
+)
 from .codec import AssemblyCodec, FieldSpec
 from .spec_loader import AssemblySpec, ConnectionProfile, load_spec, load_spec_file, parse_spec
 from .v1 import IoMapV1
 
 __all__ = [
     "IoMap",
+    "AssemblyDescription",
+    "INPUT_ASSEMBLY",
+    "OUTPUT_ASSEMBLY",
+    "CONFIG_ASSEMBLY",
     "IoMapV1",
     "AssemblyCodec",
     "AssemblySpec",

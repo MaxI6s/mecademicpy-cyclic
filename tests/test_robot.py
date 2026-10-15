@@ -2,7 +2,7 @@
 
 Two setups are used:
 
-* :class:`~tests.fake_transport.SimulatorTransport`, for the nominal command
+* :class:`~tests.fake_transport.LoopbackTransport`, for the nominal command
   sequences against realistic robot behaviour;
 * :class:`~tests.fake_transport.FakeTransport`, when a test needs to inject an
   exact input assembly or to inspect the produced output assembly.
@@ -14,6 +14,7 @@ import pytest
 
 from mecademic_fieldbus.exceptions import (
     FieldbusConnectionError,
+    FieldbusError,
     FieldbusStateError,
     FieldbusTimeoutError,
     FieldbusUnsupportedFeature,
@@ -21,10 +22,11 @@ from mecademic_fieldbus.exceptions import (
 )
 from mecademic_fieldbus.io_map import IoMap
 from mecademic_fieldbus.robot import FieldbusRobot
-from mecademic_fieldbus.robot_classes import MotionStatus, RobotStatus
+from mecademic_fieldbus.robot_classes import DYNAMIC_DATA_SLOTS, MotionStatus, RobotStatus
+from mock_robot.loopback import LoopbackTransport
 from mock_robot.simulator import DEFAULT_FIFO_SPACE, RobotSimulator
 
-from .fake_transport import FakeTransport, SimulatorTransport
+from .fake_transport import FakeTransport
 
 #: A joint target the simulator accepts.
 TARGET = (0.0, 0.0, 0.0, 0.0, 45.0, 0.0)
@@ -129,7 +131,7 @@ def test_disconnect_is_idempotent(robot: FieldbusRobot) -> None:
 
 def test_context_manager_disconnects(io_map: IoMap, simulator: RobotSimulator) -> None:
     """Leaving a ``with`` block releases the connection."""
-    robot = FieldbusRobot(SimulatorTransport(simulator), io_map, default_timeout_s=2.0)
+    robot = FieldbusRobot(LoopbackTransport(simulator), io_map, default_timeout_s=2.0)
     with robot:
         robot.Connect("in-memory")
         assert robot.is_connected is True
@@ -165,7 +167,7 @@ def test_activate_then_home_then_deactivate(
 
 def test_home_releases_the_request_bit(io_map: IoMap, simulator: RobotSimulator) -> None:
     """The homing bit is dropped once the robot reports the homed state."""
-    robot = FieldbusRobot(SimulatorTransport(simulator), io_map, default_timeout_s=2.0)
+    robot = FieldbusRobot(LoopbackTransport(simulator), io_map, default_timeout_s=2.0)
     robot.Connect("in-memory")
     robot.ActivateRobot()
     robot.Home()
@@ -178,7 +180,7 @@ def test_home_releases_the_request_bit(io_map: IoMap, simulator: RobotSimulator)
 
 def test_deactivate_releases_the_request_bit(io_map: IoMap, simulator: RobotSimulator) -> None:
     """Holding the deactivate bit would block any later activation."""
-    robot = FieldbusRobot(SimulatorTransport(simulator), io_map, default_timeout_s=2.0)
+    robot = FieldbusRobot(LoopbackTransport(simulator), io_map, default_timeout_s=2.0)
     robot.Connect("in-memory")
     robot.ActivateRobot()
     robot.DeactivateRobot()
@@ -422,7 +424,7 @@ def test_reconnecting_does_not_reuse_an_acknowledged_move_id(
     The robot ignores a move id it has already handled, so the facade must
     resume the sequence rather than restart it at zero.
     """
-    transport = SimulatorTransport(simulator)
+    transport = LoopbackTransport(simulator)
     first = FieldbusRobot(transport, io_map, default_timeout_s=2.0)
     first.Connect("in-memory")
     first.ActivateRobot()
@@ -440,3 +442,90 @@ def test_reconnecting_does_not_reuse_an_acknowledged_move_id(
 
     second.WaitIdle(timeout_s=5.0)
     assert simulator.joint_positions[4] == pytest.approx(20.0)
+
+
+# ----------------------------------------------------------------------
+# Dynamic data and robot variables
+# ----------------------------------------------------------------------
+def test_a_dynamic_slot_reports_the_type_it_was_asked_for(robot: FieldbusRobot) -> None:
+    """The robot echoes the requested type back alongside the values.
+
+    That echo is the only way a reader can tell whether the six values in a
+    slot already belong to the new request or still to the previous one, so a
+    slot that does not carry it is unusable.
+    """
+    robot.ActivateRobot()
+    robot.Home()
+    robot.SetDynamicDataTypes("ActualJointPosition", "FirmwareVersion")
+
+    assert robot.GetDynamicData(0).type_id == robot.io_map.dynamic_data_type_id(
+        "ActualJointPosition"
+    )
+    assert robot.GetDynamicData(1).type_id == robot.io_map.dynamic_data_type_id("FirmwareVersion")
+
+
+def test_a_dynamic_slot_takes_a_name_or_an_identifier(robot: FieldbusRobot) -> None:
+    """Both spellings reach the same slot, because variables have no name."""
+    robot.ActivateRobot()
+    by_name = robot.io_map.dynamic_data_type_id("ActualJointPosition")
+
+    robot.SetDynamicDataTypes("ActualJointPosition")
+    assert robot.GetDynamicData(0).type_id == by_name
+
+    robot.SetDynamicDataTypes(0)
+    robot.SetDynamicDataTypes(by_name)
+    assert robot.GetDynamicData(0).type_id == by_name
+
+
+def test_an_unknown_dynamic_type_name_is_refused(robot: FieldbusRobot) -> None:
+    """A typo must be reported, not silently requested as some other type."""
+    robot.ActivateRobot()
+    with pytest.raises(FieldbusError):
+        robot.SetDynamicDataTypes("NoSuchTypeAtAll")
+
+
+def test_a_dynamic_slot_reports_the_measured_joint_positions(
+    robot: FieldbusRobot, simulator: RobotSimulator
+) -> None:
+    """The slots carry what the fixed fields do not: the measured position.
+
+    The input assembly publishes the *target* position, so this is the only
+    route to what the robot actually did.
+    """
+    robot.ActivateRobot()
+    robot.Home()
+    robot.SetDynamicDataTypes("ActualJointPosition")
+    robot.MoveJoints(0.0, 0.0, 0.0, 0.0, 0.0, 20.0)
+    robot.WaitIdle(timeout_s=5.0)
+
+    values = robot.GetDynamicData(0).values
+    assert values[5] == pytest.approx(simulator.joint_positions[5])
+    assert values[5] == pytest.approx(20.0)
+
+
+def test_a_robot_variable_survives_the_round_trip(robot: FieldbusRobot) -> None:
+    """Identifiers 10000-19999 write a variable, and a slot reads it back.
+
+    One handshake, used three ways -- run a command, start a program, write a
+    variable -- with only the identifier range deciding which.
+
+    The robot is homed because the facade routes a variable write through
+    :meth:`SendMotionCommand`, which gates on the robot being ready to move.
+    At the protocol level the write lands without it; see the README's open
+    decisions.
+    """
+    robot.ActivateRobot()
+    robot.Home()
+    robot.SendMotionCommand(10001, 1.5, 2.5, 3.5)
+    robot.SetDynamicDataTypes(10001)
+
+    data = robot.GetDynamicData(0)
+    assert data.type_id == 10001
+    assert data.values[:3] == pytest.approx((1.5, 2.5, 3.5))
+
+
+def test_asking_for_more_types_than_there_are_slots_is_refused(robot: FieldbusRobot) -> None:
+    """Silently dropping the extras would be the worst of both answers."""
+    robot.ActivateRobot()
+    with pytest.raises(FieldbusError):
+        robot.SetDynamicDataTypes(*range(DYNAMIC_DATA_SLOTS + 1))

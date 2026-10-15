@@ -22,10 +22,12 @@ silently doing nothing, so an application always knows what it is getting.
 """
 
 import abc
-from typing import Dict, FrozenSet, Optional
+from dataclasses import dataclass
+from typing import Dict, FrozenSet, Mapping, Optional, Sequence, Tuple
 
 from ..exceptions import FieldbusUnsupportedFeature
 from ..robot_classes import (
+    DynamicData,
     MotionCommand,
     MotionControl,
     MotionStatus,
@@ -35,9 +37,62 @@ from ..robot_classes import (
     RobotStatus,
     RobotTimestamp,
 )
+from .codec import FieldSpec, FieldValue
 from .spec_loader import ConnectionProfile
 
-__all__ = ["IoMap"]
+__all__ = [
+    "IoMap",
+    "AssemblyDescription",
+    "INPUT_ASSEMBLY",
+    "OUTPUT_ASSEMBLY",
+    "CONFIG_ASSEMBLY",
+]
+
+#: Name of the assembly the robot produces.
+INPUT_ASSEMBLY = "input"
+
+#: Name of the assembly the robot consumes.
+OUTPUT_ASSEMBLY = "output"
+
+#: Name of the configuration assembly, which this robot does not carry.
+CONFIG_ASSEMBLY = "config"
+
+
+@dataclass(frozen=True)
+class AssemblyDescription:
+    """Everything a caller needs to know about one assembly, as data.
+
+    This is the structured counterpart of :meth:`IoMap.describe_layout`, for
+    tools that render their own view -- a dashboard, a report, a generated
+    document.  Handing out the offsets as data rather than as a formatted
+    string is deliberate: a caller that *consumes* them from here is still
+    honouring the rule that offsets live in one place, whereas one that
+    hard-codes them is not.
+
+    Attributes:
+        name: Name of the assembly, one of :data:`INPUT_ASSEMBLY`,
+            :data:`OUTPUT_ASSEMBLY` or :data:`CONFIG_ASSEMBLY`.
+        instance: CIP instance number, or ``None`` when the robot connection
+            path carries no such assembly.
+        size_bytes: Total size of the assembly, in bytes.
+        byte_order: ``"little"`` or ``"big"``.
+        direction: Free form description of the data direction.
+        description: Free form documentation of the assembly.
+        run_idle_header: Whether this direction carries a 32 bit run/idle
+            header on the wire, which counts towards the connection size
+            negotiated at Forward Open time but not towards
+            :attr:`size_bytes`.
+        fields: Every field of the assembly, in declaration order.
+    """
+
+    name: str
+    instance: Optional[int]
+    size_bytes: int
+    byte_order: str
+    direction: str
+    description: str
+    run_idle_header: bool
+    fields: Tuple[FieldSpec, ...]
 
 
 class IoMap(abc.ABC):
@@ -95,6 +150,11 @@ class IoMap(abc.ABC):
 
     @property
     @abc.abstractmethod
+    def dynamic_data_types(self) -> Dict[str, int]:
+        """Known dynamic data type identifiers, keyed by type name."""
+
+    @property
+    @abc.abstractmethod
     def velocity_mode_commands(self) -> FrozenSet[str]:
         """Names of the commands that run continuously instead of being queued.
 
@@ -133,6 +193,30 @@ class IoMap(abc.ABC):
                 "motion command {!r} is not defined for assembly version {}; "
                 "add it to the 'motion_commands.ids' section of the specification "
                 "(known commands: {})".format(name, self.version, known)
+            )
+
+    def dynamic_data_type_id(self, name: str) -> int:
+        """Return the identifier of a named dynamic data type.
+
+        Args:
+            name: Type name, as used in the ``dynamic_data_types`` section of
+                the specification.
+
+        Returns:
+            The identifier to write into a ``DynamicTypeCfg`` field.
+
+        Raises:
+            FieldbusUnsupportedFeature: If the specification does not define
+                that type.
+        """
+        try:
+            return self.dynamic_data_types[name]
+        except KeyError:
+            known = ", ".join(sorted(self.dynamic_data_types)) or "none"
+            raise FieldbusUnsupportedFeature(
+                "dynamic data type {!r} is not defined for assembly version {}; "
+                "add it to the 'dynamic_data_types.ids' section of the specification "
+                "(known types: {})".format(name, self.version, known)
             )
 
     def is_velocity_mode_command(self, command_id: int) -> bool:
@@ -263,6 +347,73 @@ class IoMap(abc.ABC):
 
         Raises:
             FieldbusIoMapError: If the buffer is too short.
+        """
+
+    @abc.abstractmethod
+    def decode_dynamic_data(self, raw_input: bytes, slot: int) -> DynamicData:
+        """Decode one dynamic data slot of the input assembly.
+
+        Args:
+            raw_input: Raw input assembly image.
+            slot: Slot index, from ``0``.
+
+        Returns:
+            The type the robot is publishing there and its values.
+
+        Raises:
+            FieldbusIoMapError: If the slot does not exist or the buffer is too
+                short.
+        """
+
+    @abc.abstractmethod
+    def encode_dynamic_data(
+        self, slot: int, data: DynamicData, raw_input: Optional[bytes] = None
+    ) -> bytes:
+        """Write one dynamic data slot into an input assembly image.
+
+        Args:
+            slot: Slot index, from ``0``.
+            data: Type and values to publish.
+            raw_input: Image to update.  Defaults to an all-zero image.
+
+        Returns:
+            The updated input assembly image.
+
+        Raises:
+            FieldbusIoMapError: If the slot does not exist or the values do not
+                fit.
+        """
+
+    @abc.abstractmethod
+    def decode_dynamic_config(self, raw_output: bytes) -> Tuple[int, ...]:
+        """Decode the dynamic data types requested in the output assembly.
+
+        Args:
+            raw_output: Raw output assembly image.
+
+        Returns:
+            One requested type identifier per slot.
+
+        Raises:
+            FieldbusIoMapError: If the buffer is too short.
+        """
+
+    @abc.abstractmethod
+    def encode_dynamic_config(
+        self, types: Sequence[int], raw_output: Optional[bytes] = None
+    ) -> bytes:
+        """Request dynamic data types in an output assembly image.
+
+        Args:
+            types: One type identifier per slot; fewer than there are slots
+                leaves the remaining ones untouched.
+            raw_output: Image to update.  Defaults to an all-zero image.
+
+        Returns:
+            The updated output assembly image.
+
+        Raises:
+            FieldbusIoMapError: If more types are given than there are slots.
         """
 
     @abc.abstractmethod
@@ -452,9 +603,64 @@ class IoMap(abc.ABC):
         """
 
     # ------------------------------------------------------------------
+    # Introspection
+    # ------------------------------------------------------------------
+    @property
+    @abc.abstractmethod
+    def source(self) -> Mapping[str, str]:
+        """Provenance of the layout: vendor file, revision, firmware."""
+
+    @abc.abstractmethod
+    def describe_assembly(self, assembly: str = INPUT_ASSEMBLY) -> AssemblyDescription:
+        """Return the geometry and every field of one assembly, as data.
+
+        Args:
+            assembly: Which assembly to describe.
+
+        Returns:
+            The description.
+
+        Raises:
+            FieldbusIoMapError: If there is no assembly by that name.
+        """
+
+    @abc.abstractmethod
+    def decode_all(self, assembly: str, raw: bytes) -> Dict[str, FieldValue]:
+        """Decode every field of one assembly at once.
+
+        Intended for tools that show the whole process image rather than the
+        few groups the facade exposes.
+
+        Args:
+            assembly: Which assembly ``raw`` holds.
+            raw: Raw assembly image.
+
+        Returns:
+            A mapping of field name to decoded value, covering every field the
+            assembly declares.
+
+        Raises:
+            FieldbusIoMapError: If the assembly is unknown or the buffer is too
+                short.
+        """
+
+    def describe_fields(self, assembly: str = INPUT_ASSEMBLY) -> Tuple[FieldSpec, ...]:
+        """Return every field of one assembly, in declaration order.
+
+        Args:
+            assembly: Which assembly to describe.
+
+        Returns:
+            The field specifications.
+
+        Raises:
+            FieldbusIoMapError: If there is no assembly by that name.
+        """
+        return self.describe_assembly(assembly).fields
+
+    # ------------------------------------------------------------------
     # Diagnostics
     # ------------------------------------------------------------------
-    @abc.abstractmethod
     def describe_layout(self) -> str:
         """Return a human readable description of the assembly layout.
 
@@ -462,9 +668,50 @@ class IoMap(abc.ABC):
         of showing offsets to a human, and it always reflects the declarative
         specification rather than a hand-written copy of it.
 
+        Rendered from :meth:`describe_assembly`, so the text view and the
+        structured view cannot drift apart, and so a new layout version
+        inherits the renderer.
+
         Returns:
-            A multi-line description of both assemblies.
+            A multi-line description of all three assemblies.
         """
+        source = self.source
+        lines = [
+            "IoMap version {} - {} firmware {} (EDS {}, {})".format(
+                self.version,
+                source.get("product_name", "unknown robot"),
+                source.get("firmware_revision", "?"),
+                source.get("eds_revision", "?"),
+                source.get("file", "?"),
+            ),
+            "connection path {} - RPI {} to {} us".format(
+                self.connection.connection_path or "?",
+                self.connection.rpi_microseconds_min,
+                self.connection.rpi_microseconds_max,
+            ),
+        ]
+        for name in (INPUT_ASSEMBLY, OUTPUT_ASSEMBLY, CONFIG_ASSEMBLY):
+            description = self.describe_assembly(name)
+            lines.append("")
+            lines.append(
+                "{} assembly - instance {}, {} bytes, {}".format(
+                    description.name,
+                    "none" if description.instance is None else description.instance,
+                    description.size_bytes,
+                    description.direction or "n/a",
+                )
+            )
+            for field in description.fields:
+                if field.is_bool:
+                    position = "byte {}, bit {}".format(field.byte_offset, field.bit_offset)
+                else:
+                    position = "byte {}".format(field.byte_offset)
+                count = "" if field.count == 1 else "[{}]".format(field.count)
+                unit = " ({})".format(field.unit) if field.unit else ""
+                lines.append(
+                    "  {:<38} {:<9} {}{}".format(field.name + count, field.type, position, unit)
+                )
+        return "\n".join(lines)
 
     def __repr__(self) -> str:
         """Return a short representation naming the implemented version."""

@@ -13,13 +13,16 @@ Fields the vendor marks as deprecated -- ``RobotStatus_EStop`` and
 the specification but deliberately not surfaced here.
 """
 
-from typing import Any, Dict, FrozenSet, Optional, Sequence, Tuple
+from typing import Any, Dict, FrozenSet, Mapping, Optional, Sequence, Tuple
 
 from ..exceptions import FieldbusIoMapError
 from ..robot_classes import (
+    DYNAMIC_DATA_SLOTS,
+    DYNAMIC_DATA_VALUES,
     JOINT_COUNT,
     MOTION_ARGUMENT_COUNT,
     POSE_COUNT,
+    DynamicData,
     InverseKinematicsConfiguration,
     MotionCommand,
     MotionControl,
@@ -31,8 +34,8 @@ from ..robot_classes import (
     RobotTimestamp,
     SafetyStopFlags,
 )
-from .base import IoMap
-from .codec import AssemblyCodec
+from .base import CONFIG_ASSEMBLY, INPUT_ASSEMBLY, OUTPUT_ASSEMBLY, AssemblyDescription, IoMap
+from .codec import AssemblyCodec, FieldValue
 from .spec_loader import AssemblySpec, ConnectionProfile, load_spec
 
 __all__ = ["IoMapV1"]
@@ -109,6 +112,14 @@ _OUT_MOTION_ARGUMENTS = tuple(
     "MotionCommand_Arg{}".format(index + 1) for index in range(MOTION_ARGUMENT_COUNT)
 )
 
+#: Dynamic data, four slots each carrying a type and six values.
+_OUT_DYNAMIC_CONFIG = tuple("DynamicTypeCfg{}".format(slot) for slot in range(DYNAMIC_DATA_SLOTS))
+_IN_DYNAMIC_TYPES = tuple("DynamicType{}".format(slot) for slot in range(DYNAMIC_DATA_SLOTS))
+_IN_DYNAMIC_VALUES = tuple(
+    tuple("DynamicData{}_value{}".format(slot, index) for index in range(DYNAMIC_DATA_VALUES))
+    for slot in range(DYNAMIC_DATA_SLOTS)
+)
+
 
 class IoMapV1(IoMap):
     """Assembly mapping version 1, backed by ``spec/assembly_v1.json``.
@@ -183,6 +194,11 @@ class IoMapV1(IoMap):
     def motion_command_ids(self) -> Dict[str, int]:
         """Known motion command identifiers, keyed by command name."""
         return dict(self._motion_command_ids)
+
+    @property
+    def dynamic_data_types(self) -> Dict[str, int]:
+        """Known dynamic data type identifiers, keyed by type name."""
+        return dict(self._spec.dynamic_data_types)
 
     @property
     def velocity_mode_commands(self) -> FrozenSet[str]:
@@ -348,6 +364,115 @@ class IoMapV1(IoMap):
             wrist=InverseKinematicsConfiguration.from_raw(int(values[_IN_WRIST])),
             turn=InverseKinematicsConfiguration.from_raw(int(values[_IN_TURN])),
         )
+
+    def decode_dynamic_data(self, raw_input: bytes, slot: int) -> DynamicData:
+        """Decode one dynamic data slot of the input assembly.
+
+        Args:
+            raw_input: Raw input assembly image.
+            slot: Slot index, from ``0``.
+
+        Returns:
+            The type the robot is publishing there and its values.
+
+        Raises:
+            FieldbusIoMapError: If the slot does not exist or the buffer is too
+                short.
+        """
+        self._check_slot(slot)
+        values = self._input.read_many(
+            raw_input, (_IN_DYNAMIC_TYPES[slot],) + _IN_DYNAMIC_VALUES[slot]
+        )
+        return DynamicData(
+            type_id=int(values[_IN_DYNAMIC_TYPES[slot]]),
+            values=tuple(float(values[name]) for name in _IN_DYNAMIC_VALUES[slot]),
+        )
+
+    def encode_dynamic_data(
+        self, slot: int, data: DynamicData, raw_input: Optional[bytes] = None
+    ) -> bytes:
+        """Write one dynamic data slot into an input assembly image.
+
+        Args:
+            slot: Slot index, from ``0``.
+            data: Type and values to publish.
+            raw_input: Image to update.  Defaults to an all-zero image.
+
+        Returns:
+            The updated input assembly image.
+
+        Raises:
+            FieldbusIoMapError: If the slot does not exist or the values do not
+                fit.
+        """
+        self._check_slot(slot)
+        values: Dict[str, Any] = {_IN_DYNAMIC_TYPES[slot]: data.type_id}
+        values.update(
+            zip(
+                _IN_DYNAMIC_VALUES[slot],
+                self._fit(data.values, DYNAMIC_DATA_VALUES, "dynamic data values"),
+            )
+        )
+        return self._input.pack(values, base=raw_input)
+
+    def decode_dynamic_config(self, raw_output: bytes) -> Tuple[int, ...]:
+        """Decode the dynamic data types requested in the output assembly.
+
+        Args:
+            raw_output: Raw output assembly image.
+
+        Returns:
+            One requested type identifier per slot.
+
+        Raises:
+            FieldbusIoMapError: If the buffer is too short.
+        """
+        values = self._output.read_many(raw_output, _OUT_DYNAMIC_CONFIG)
+        return tuple(int(values[name]) for name in _OUT_DYNAMIC_CONFIG)
+
+    def encode_dynamic_config(
+        self, types: Sequence[int], raw_output: Optional[bytes] = None
+    ) -> bytes:
+        """Request dynamic data types in an output assembly image.
+
+        Args:
+            types: One type identifier per slot; fewer than there are slots
+                leaves the remaining ones untouched.
+            raw_output: Image to update.  Defaults to an all-zero image.
+
+        Returns:
+            The updated output assembly image.
+
+        Raises:
+            FieldbusIoMapError: If more types are given than there are slots.
+        """
+        if len(types) > DYNAMIC_DATA_SLOTS:
+            raise FieldbusIoMapError(
+                "the assembly carries {} dynamic data slots, got {} type(s)".format(
+                    DYNAMIC_DATA_SLOTS, len(types)
+                )
+            )
+        return self._output.pack(
+            {_OUT_DYNAMIC_CONFIG[slot]: int(value) for slot, value in enumerate(types)},
+            base=raw_output,
+        )
+
+    @staticmethod
+    def _check_slot(slot: int) -> None:
+        """Verify a dynamic data slot exists.
+
+        Args:
+            slot: Slot index.
+
+        Raises:
+            FieldbusIoMapError: If there is no such slot.
+        """
+        if not 0 <= slot < DYNAMIC_DATA_SLOTS:
+            raise FieldbusIoMapError(
+                "dynamic data slot must be between 0 and {}, got {}".format(
+                    DYNAMIC_DATA_SLOTS - 1, slot
+                )
+            )
 
     def decode_timestamp(self, raw_input: bytes) -> RobotTimestamp:
         """Decode the free-running counters from the input assembly.
@@ -661,52 +786,96 @@ class IoMapV1(IoMap):
     # ------------------------------------------------------------------
     # Diagnostics
     # ------------------------------------------------------------------
-    def describe_layout(self) -> str:
-        """Return a human readable description of the assembly layout.
+    @property
+    def source(self) -> Mapping[str, str]:
+        """Provenance of the layout: vendor file, revision, firmware."""
+        return self._spec.source
+
+    def describe_assembly(self, assembly: str = INPUT_ASSEMBLY) -> AssemblyDescription:
+        """Return the geometry and every field of one assembly, as data.
+
+        Args:
+            assembly: Which assembly to describe.
 
         Returns:
-            A multi-line description of both assemblies, generated from the
-            declarative specification.
+            The description.
+
+        Raises:
+            FieldbusIoMapError: If there is no assembly by that name.
         """
-        source = self._spec.source
-        lines = [
-            "IoMap version {} - {} firmware {} (EDS {}, {})".format(
-                self.version,
-                source.get("product_name", "unknown robot"),
-                source.get("firmware_revision", "?"),
-                source.get("eds_revision", "?"),
-                source.get("file", "?"),
-            ),
-            "connection path {} - RPI {} to {} us".format(
-                self.connection.connection_path or "?",
-                self.connection.rpi_microseconds_min,
-                self.connection.rpi_microseconds_max,
-            ),
-        ]
-        for codec in (self._input, self._output, self._spec.config):
-            lines.append("")
-            lines.append(
-                "{} assembly - instance {}, {} bytes, {}".format(
-                    codec.name,
-                    "none" if codec.instance is None else codec.instance,
-                    codec.size_bytes,
-                    codec.direction or "n/a",
-                )
-            )
-            for name in codec.field_names:
-                spec = codec.field(name)
-                if spec.is_bool:
-                    position = "byte {}, bit {}".format(spec.byte_offset, spec.bit_offset)
-                else:
-                    position = "byte {}".format(spec.byte_offset)
-                count = "" if spec.count == 1 else "[{}]".format(spec.count)
-                unit = " ({})".format(spec.unit) if spec.unit else ""
-                lines.append("  {:<38} {:<9} {}{}".format(name + count, spec.type, position, unit))
-        return "\n".join(lines)
+        codec = self._codec(assembly)
+        return AssemblyDescription(
+            name=codec.name,
+            instance=codec.instance,
+            size_bytes=codec.size_bytes,
+            byte_order=codec.byte_order,
+            direction=codec.direction,
+            description=codec.description,
+            run_idle_header=self._run_idle_header(assembly),
+            fields=tuple(codec.field(name) for name in codec.field_names),
+        )
+
+    def decode_all(self, assembly: str, raw: bytes) -> Dict[str, FieldValue]:
+        """Decode every field of one assembly at once.
+
+        Args:
+            assembly: Which assembly ``raw`` holds.
+            raw: Raw assembly image.
+
+        Returns:
+            A mapping of field name to decoded value.
+
+        Raises:
+            FieldbusIoMapError: If the assembly is unknown or the buffer is too
+                short.
+        """
+        codec = self._codec(assembly)
+        return codec.read_many(raw, codec.field_names)
 
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
+    def _codec(self, assembly: str) -> AssemblyCodec:
+        """Return the codec of one assembly, by name.
+
+        Args:
+            assembly: Which assembly to look up.
+
+        Returns:
+            The matching codec.
+
+        Raises:
+            FieldbusIoMapError: If there is no assembly by that name.
+        """
+        codecs = {
+            INPUT_ASSEMBLY: self._spec.input,
+            OUTPUT_ASSEMBLY: self._spec.output,
+            CONFIG_ASSEMBLY: self._spec.config,
+        }
+        try:
+            return codecs[assembly]
+        except KeyError:
+            raise FieldbusIoMapError(
+                "unknown assembly {!r}, expected one of {}".format(
+                    assembly, ", ".join(sorted(codecs))
+                )
+            )
+
+    def _run_idle_header(self, assembly: str) -> bool:
+        """Tell whether one direction carries a 32 bit run/idle header.
+
+        Args:
+            assembly: Which assembly to answer for.
+
+        Returns:
+            ``True`` when that direction prepends the header on the wire.
+        """
+        if assembly == INPUT_ASSEMBLY:
+            return self._spec.connection.input_run_idle_header
+        if assembly == OUTPUT_ASSEMBLY:
+            return self._spec.connection.output_run_idle_header
+        return False
+
     @property
     def _input(self) -> AssemblyCodec:
         """Codec of the input assembly."""

@@ -1,0 +1,71 @@
+{
+  "comment": "DynamicDataTypeID values accepted in DynamicTypeCfg0..3 of the output assembly. The robot echoes the type back in DynamicType0..3 and publishes up to six floats in the matching DynamicData slot. Transcribed by hand from Table 12 of the programming manual: no vendor definition file publishes them, exactly as with the motion command identifiers. tools/eds_to_spec.py and tools/update_dynamic_data_types.py merge this table into the specification.",
+  "source": {
+    "document": "Meca500 programming manual, 4.4.6 Dynamic data configuration, Table 12",
+    "url": "https://resources.mecademic.com/en/doc/MC-PM-MECA500/latest/manual/communicating-over-cyclic-protocols.html",
+    "retrieved": "2026-09-22"
+  },
+  "notes": [
+    "Type 0 is Automatic: the robot cycles through every available type, a different one each cycle, which is the easiest way to receive everything periodically.",
+    "Every type returns six values; the unused ones are zero.",
+    "Identifiers 10000 to 19999 report the robot variable whose cyclic id matches, which is how Get variable works.",
+    "No type exists for information already carried by a dedicated field, such as the target joint set or the target end-effector pose."
+  ],
+  "ids": {
+    "Automatic": 0,
+    "FirmwareVersion": 1,
+    "ProductType": 2,
+    "SerialNumber": 3,
+    "JointLimitsConfiguration": 11,
+    "ModelJointLimits123": 12,
+    "ModelJointLimits456": 13,
+    "EffectiveJointLimits123": 14,
+    "EffectiveJointLimits456": 15,
+    "WorkZoneConfiguration": 17,
+    "WorkZoneLimits": 18,
+    "ToolSphere": 19,
+    "ConfAndConfTurn": 20,
+    "MotionQueueParameters": 21,
+    "MotionQueueVelocities": 22,
+    "GripperParameters": 23,
+    "TorqueLimitsConfiguration": 24,
+    "TorqueLimits": 25,
+    "VacuumConfiguration": 26,
+    "MoveModeConfiguration": 29,
+    "CalibrationStatus": 30,
+    "Payload": 31,
+    "TargetJointVelocity": 32,
+    "TargetJointTorque": 33,
+    "TargetCartesianVelocity": 34,
+    "CollisionConfiguration": 36,
+    "CollisionStatus": 37,
+    "WorkZoneStatus": 38,
+    "ActualJointPosition": 40,
+    "ActualEndEffectorPose": 41,
+    "ActualJointVelocity": 42,
+    "ActualJointTorque": 43,
+    "ActualCartesianVelocity": 44,
+    "ActualConfAndConfTurn": 45,
+    "Accelerometer": 46,
+    "ExternalToolStatus": 52,
+    "EndOfArmToolStatus": 53,
+    "TimeScaling": 54,
+    "ConfiguredJointLimits123": 61,
+    "ConfiguredJointLimits456": 62
+  },
+  "descriptions": {
+    "Automatic": "The robot chooses a type and changes it every cycle, going through all of them in a round-robin manner",
+    "FirmwareVersion": "major, minor, patch, build",
+    "ActualJointPosition": "Measured joint angles, in degrees",
+    "ActualEndEffectorPose": "Measured pose x, y, z, alpha, beta, gamma",
+    "ActualJointVelocity": "Measured joint velocities, in degrees per second",
+    "ActualJointTorque": "Measured joint torques, in percent",
+    "MotionQueueVelocities": "joint velocity, joint acceleration, Cartesian linear velocity, Cartesian angular velocity, Cartesian acceleration, joint velocity limit, all in percent",
+    "TimeScaling": "Time scaling, in percent"
+  },
+  "variable_id_range": [10000, 19999],
+  "not_available_on_this_robot": {
+    "MoveJumpHeight": 27,
+    "MoveJumpApproachVelocity": 28
+  }
+}

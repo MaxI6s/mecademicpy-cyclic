@@ -493,3 +493,126 @@ def test_output_vectors_re_encode_byte_for_byte(io_map: IoMap, case: dict) -> No
 def test_vectors_match_the_shipped_assembly_version(io_map: IoMap) -> None:
     """The golden vectors were generated for the version under test."""
     assert VECTORS["assembly_version"] == io_map.version
+
+
+# ----------------------------------------------------------------------
+# Structured introspection
+# ----------------------------------------------------------------------
+def test_describe_assembly_reports_the_geometry(io_map: IoMap) -> None:
+    """The structured description agrees with the geometry properties."""
+    from mecademic_fieldbus.io_map import INPUT_ASSEMBLY, OUTPUT_ASSEMBLY
+
+    described = io_map.describe_assembly(INPUT_ASSEMBLY)
+    assert described.name == INPUT_ASSEMBLY
+    assert described.instance == io_map.input_assembly_instance
+    assert described.size_bytes == io_map.input_assembly_size
+    assert described.byte_order == "little"
+    assert len(described.fields) == 91
+
+    output = io_map.describe_assembly(OUTPUT_ASSEMBLY)
+    assert output.instance == io_map.output_assembly_instance
+    assert output.size_bytes == io_map.output_assembly_size
+    assert len(output.fields) == 26
+
+
+def test_describe_assembly_reports_the_run_idle_asymmetry(io_map: IoMap) -> None:
+    """Each direction carries its own run/idle header flag.
+
+    The asymmetry -- a header outbound, none inbound -- is the detail that
+    decides the connection sizes, so it belongs next to the assembly it
+    applies to.
+    """
+    from mecademic_fieldbus.io_map import INPUT_ASSEMBLY, OUTPUT_ASSEMBLY
+
+    assert io_map.describe_assembly(OUTPUT_ASSEMBLY).run_idle_header is True
+    assert io_map.describe_assembly(INPUT_ASSEMBLY).run_idle_header is False
+
+
+def test_describe_assembly_rejects_an_unknown_name(io_map: IoMap) -> None:
+    """Asking about an assembly that does not exist fails loudly."""
+    with pytest.raises(FieldbusIoMapError):
+        io_map.describe_assembly("sideways")
+
+
+def test_describe_fields_covers_every_byte_exactly_once(io_map: IoMap) -> None:
+    """No two fields claim the same bit, and none runs past the assembly.
+
+    The codec already refuses an overlapping specification at load time; this
+    asserts the same invariant through the public introspection API, which is
+    what the training tools build their byte map on.
+    """
+    from mecademic_fieldbus.io_map import INPUT_ASSEMBLY, OUTPUT_ASSEMBLY
+
+    for assembly in (INPUT_ASSEMBLY, OUTPUT_ASSEMBLY):
+        described = io_map.describe_assembly(assembly)
+        claimed: dict = {}
+        for field in described.fields:
+            for bit in range(field.first_bit_index, field.first_bit_index + field.size_bits):
+                assert bit not in claimed, "{} and {} share a bit".format(
+                    claimed.get(bit), field.name
+                )
+                claimed[bit] = field.name
+            assert field.end_byte_offset <= described.size_bytes
+
+
+def test_decode_all_decodes_every_declared_field(io_map: IoMap) -> None:
+    """``decode_all`` covers exactly the fields the assembly declares."""
+    from mecademic_fieldbus.io_map import INPUT_ASSEMBLY
+
+    described = io_map.describe_assembly(INPUT_ASSEMBLY)
+    values = io_map.decode_all(INPUT_ASSEMBLY, io_map.empty_input_assembly())
+    assert set(values) == {field.name for field in described.fields}
+
+
+def test_decode_all_agrees_with_the_group_decoders(io_map: IoMap) -> None:
+    """The whole-assembly view and the typed decoders see the same bytes."""
+    from mecademic_fieldbus.io_map import INPUT_ASSEMBLY
+
+    raw = io_map.encode_status(RobotStatus(activated=True, homed=True, error_code=1234))
+    values = io_map.decode_all(INPUT_ASSEMBLY, raw)
+    assert values["RobotStatus_Activated"] is True
+    assert values["RobotStatus_Homed"] is True
+    assert values["RobotStatus_Error"] == 1234
+    assert values["RobotStatus_Busy"] is False
+
+
+def test_decode_all_rejects_a_short_buffer(io_map: IoMap) -> None:
+    """A truncated image fails loudly rather than decoding garbage."""
+    from mecademic_fieldbus.io_map import INPUT_ASSEMBLY
+
+    with pytest.raises(FieldbusIoMapError):
+        io_map.decode_all(INPUT_ASSEMBLY, bytes(4))
+
+
+def test_describe_layout_is_rendered_from_the_description(io_map: IoMap) -> None:
+    """The text view names every field the structured view reports.
+
+    ``describe_layout`` is derived from ``describe_assembly`` precisely so the
+    two cannot drift; this is the assertion that keeps it that way.
+    """
+    from mecademic_fieldbus.io_map import CONFIG_ASSEMBLY, INPUT_ASSEMBLY, OUTPUT_ASSEMBLY
+
+    layout = io_map.describe_layout()
+    for assembly in (INPUT_ASSEMBLY, OUTPUT_ASSEMBLY, CONFIG_ASSEMBLY):
+        for field in io_map.describe_assembly(assembly).fields:
+            assert field.name in layout, field.name
+
+
+def test_every_field_is_documented(io_map: IoMap) -> None:
+    """Every field carries a description, including the bit-string bits.
+
+    The EDS documents its scalar parameters but keeps the help text of its CIP
+    bit strings in comments the generator strips, so the boolean fields are
+    filled in from ``tools/field_docs_v1.json``.  Without this guard they go
+    back to being silently undocumented on the next regeneration, and a
+    training dashboard shows empty tooltips on every status bit.
+    """
+    from mecademic_fieldbus.io_map import INPUT_ASSEMBLY, OUTPUT_ASSEMBLY
+
+    undocumented = [
+        field.name
+        for assembly in (INPUT_ASSEMBLY, OUTPUT_ASSEMBLY)
+        for field in io_map.describe_assembly(assembly).fields
+        if not field.description
+    ]
+    assert undocumented == [], "run: python tools/update_field_docs.py"

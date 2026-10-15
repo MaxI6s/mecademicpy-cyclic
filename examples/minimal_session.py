@@ -33,6 +33,7 @@ simulator:
 import argparse
 import logging
 import os
+import random
 import sys
 import time
 from typing import List, Optional
@@ -45,21 +46,19 @@ from mecademic_fieldbus import (  # noqa: E402
     FieldbusUnsupportedFeature,
     get_io_map,
 )
+from mecademic_fieldbus.robot_classes import JOINT_COUNT  # noqa: E402
 from mecademic_fieldbus.transports.ethernetip import EtherNetIpTransport  # noqa: E402
 
-#: Joint target used by the demonstration move, in degrees.
+#: How far, in degrees, the demonstration move may stray from zero on any joint.
 #: TODO: adjust to something safe for your cell before running on real hardware.
+DEMO_OFFSET_DEG = 15
 
-from random import randint
-
-OFFSET = 15
-DEMO_JOINT_TARGET = (randint(-OFFSET, OFFSET),
-                     randint(-OFFSET, OFFSET),
-                     randint(-OFFSET, OFFSET),
-                     randint(-OFFSET, OFFSET),
-                     randint(-OFFSET, OFFSET),
-                     randint(-OFFSET, OFFSET)
-                     )
+#: Joint target used by the demonstration move, in degrees.  Randomised within
+#: the offset above so that repeated demonstrations actually move the robot
+#: instead of commanding the position it is already in.
+DEMO_JOINT_TARGET = tuple(
+    random.randint(-DEMO_OFFSET_DEG, DEMO_OFFSET_DEG) for _ in range(JOINT_COUNT)
+)
 
 
 def build_parser() -> argparse.ArgumentParser:

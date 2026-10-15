@@ -33,6 +33,7 @@ from .exceptions import (
 from .io_map import IoMap, IoMapV1, get_io_map
 from .robot import FieldbusRobot
 from .robot_classes import (
+    DynamicData,
     InverseKinematicsConfiguration,
     MotionCommand,
     MotionControl,
@@ -55,6 +56,7 @@ __all__ = [
     "IoMap",
     "IoMapV1",
     "get_io_map",
+    "DynamicData",
     "InverseKinematicsConfiguration",
     "MotionCommand",
     "MotionControl",

@@ -25,7 +25,7 @@ Two properties of the cyclic protocol shape everything below:
 import dataclasses
 import time
 from types import TracebackType
-from typing import Any, Callable, Optional, Sequence, Type
+from typing import Any, Callable, Optional, Sequence, Type, Union
 
 from .exceptions import (
     FieldbusStateError,
@@ -37,6 +37,7 @@ from .io_map.base import IoMap
 from .robot_classes import (
     JOINT_COUNT,
     POSE_COUNT,
+    DynamicData,
     MotionCommand,
     MotionControl,
     MotionStatus,
@@ -340,6 +341,50 @@ class FieldbusRobot:
             FieldbusConnectionError: If the transport is not connected.
         """
         return self._io_map.decode_timestamp(self._transport.read_input_assembly())
+
+    def SetDynamicDataTypes(self, *types: Union[int, str]) -> None:
+        """Ask the robot which dynamic data to publish in each slot.
+
+        The four slots are how the robot answers for everything the fixed
+        fields do not carry.  The robot echoes the requested type back
+        alongside the values, so a reader can tell whether what it sees already
+        belongs to the new request or still to the old one.
+
+        Args:
+            *types: One type per slot, either a name from
+                :attr:`IoMap.dynamic_data_types` or a raw identifier.  Fewer
+                than there are slots leaves the rest untouched.  Identifiers
+                from 10000 to 19999 address a robot variable rather than a
+                type, and have no name to give.
+
+        Raises:
+            FieldbusIoMapError: If a name is unknown, or more types are given
+                than there are slots.
+            FieldbusConnectionError: If the transport is not connected.
+        """
+        resolved = tuple(
+            self._io_map.dynamic_data_type_id(value) if isinstance(value, str) else value
+            for value in types
+        )
+        self._output_image = self._io_map.encode_dynamic_config(resolved, self._output_image)
+        self._push_output()
+
+    def GetDynamicData(self, slot: int = 0) -> DynamicData:
+        """Return what the robot is publishing in one dynamic data slot.
+
+        Args:
+            slot: Slot index, from ``0``.
+
+        Returns:
+            The type the robot is publishing and its values.  A delay of a
+            cycle or two is normal after changing the requested type, so check
+            :attr:`DynamicData.type_id` before trusting the values.
+
+        Raises:
+            FieldbusIoMapError: If the slot does not exist.
+            FieldbusConnectionError: If the transport is not connected.
+        """
+        return self._io_map.decode_dynamic_data(self._transport.read_input_assembly(), slot)
 
     def GetRobotPosition(self) -> RobotPosition:
         """Return the current joint angles and end effector pose.

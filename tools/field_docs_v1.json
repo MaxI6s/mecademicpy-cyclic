@@ -1,0 +1,128 @@
+{
+  "comment": "Per-field documentation for assembly layout v1. The EDS carries help text for its scalar parameters but not for the individual bits of its CIP bit strings, so the 39 boolean fields come out of tools/eds_to_spec.py undocumented. The text below is transcribed from the vendor GSDML, which names and describes every bit. tools/eds_to_spec.py and tools/update_field_docs.py merge it into the specification; a field absent here keeps whatever the EDS said.",
+  "source": {
+    "document": "Meca500 PROFINET device description, module parameter descriptions",
+    "file": "GSDML-V2.42-Mecademic-meca500-20260414.xml",
+    "retrieved": "2026-09-22",
+    "note": "Wording is the vendor's, with one normalisation: the GSDML says \"Profinet's cyclic data\" where this specification describes the EtherNet/IP assemblies, so that phrase reads \"the cyclic data\" here."
+  },
+  "fields": {
+    "RobotStatus_Busy": {
+      "description": "Tells if the robot is busy (activating, deactivating, or homing)"
+    },
+    "RobotStatus_Activated": {
+      "description": "Tells if the robot is actually activated (online, ready to home)"
+    },
+    "RobotStatus_Homed": {
+      "description": "Tells if the robot has been homed and is ready to receive motion commands"
+    },
+    "RobotStatus_SimActivated": {
+      "description": "Tells if the robot simulation mode is active (robot will react to commands normally, but not actually move)"
+    },
+    "RobotStatus_BrakesEngaged": {
+      "description": "Tells if the brakes are engaged (only possible when robot is deactivated)"
+    },
+    "RobotStatus_RecoveryMode": {
+      "description": "Tells if currently in recovery mode (robot will move slowly only, ignoring joint limits, without requiring homing)"
+    },
+    "RobotStatus_EStop": {
+      "description": "Deprecated. Moved to SafetyStatus_Stop_EStop"
+    },
+    "RobotStatus_CollisionStatus": {
+      "description": "Tells if the robot is in a collision event"
+    },
+    "RobotStatus_WorkZoneStatus": {
+      "description": "Tells if the robot is outside its work zone"
+    },
+    "RobotStatus_MonitoringMode": {
+      "description": "Indicates that the current cyclic connection only allows monitoring the robot, not controlling it"
+    },
+    "MotionStatus_Paused": {
+      "description": "Indicates if the robot is actually paused"
+    },
+    "MotionStatus_EOB": {
+      "description": "Indicates that the robot is not moving AND has no more commands left to process"
+    },
+    "MotionStatus_EOM": {
+      "description": "Indicates that the robot is not moving (though queue may still contain commands)"
+    },
+    "MotionStatus_Cleared": {
+      "description": "Indicates that the robot command queue has been cleared"
+    },
+    "MotionStatus_PStop2": {
+      "description": "Deprecated. Moved to SafetyStatus_Stop_PStop2"
+    },
+    "MotionStatus_ExcessiveTorque": {
+      "description": "Indicates that the robot detects excessive torque"
+    },
+    "StopMask_EStop": {
+      "description": "Power supply has detected a EStop (emergency stop) signal"
+    },
+    "StopMask_PStop2": {
+      "description": "Power supply has detected a SwStop (software stop) signal"
+    },
+    "StopMask_Reboot": {
+      "description": "Robot just rebooted, causing motor voltage disable"
+    },
+    "StopMask_ConnectionDropped": {
+      "description": "Control connection with host lost while robot was not idle, or while the connection timer is active"
+    },
+    "StopResettableMask_EStop": {
+      "description": "Reset possible, power supply no more detects a EStop (emergency stop) signal"
+    },
+    "StopResettableMask_PStop2": {
+      "description": "ResumeMotion possible, power supply no more detects a SwStop (software stop) signal"
+    },
+    "StopResettableMask_Reboot": {
+      "description": "Reset possible to re-enable motor voltage after reboot"
+    },
+    "StopResettableMask_ConnectionDropped": {
+      "description": "ResumeMotion possible, control connection with host re-established"
+    },
+    "SafetyStatus_State_ResetReady": {
+      "description": "Safety stop conditions can now be reset using the power supply Reset function"
+    },
+    "SafetyStatus_State_VMotorOn": {
+      "description": "Motor voltage state (0=off, 1=on)"
+    },
+    "RobotControl_Deactivate": {
+      "description": "As soon (and as long as) this boolean is set, the robot will deactivate itself"
+    },
+    "RobotControl_Activate": {
+      "description": "As soon (and as long as) this boolean is set, the robot will activate itself, unless deactivate bit is set"
+    },
+    "RobotControl_Home": {
+      "description": "As soon (and as long as) this boolean is set, the robot will find home position after it's activated"
+    },
+    "RobotControl_ResetError": {
+      "description": "As soon (and as long as) this boolean is set, the last robot error will be cleared"
+    },
+    "RobotControl_EnableSimulation": {
+      "description": "If set while robot is deactivated, this boolean enables the robot simulation mode (robot will react to commands normally, but not actually move)"
+    },
+    "RobotControl_EnableRecoveryMode": {
+      "description": "This boolean enables the robot recovery mode (robot will move slowly only, ignoring joint limits, without requiring homing)"
+    },
+    "MotionControl_Setpoint": {
+      "description": "Bit that must be set to 1 when current output contains a command to be executed by the robot. If this bit is cleared (0), robot ignores any move information in that output"
+    },
+    "MotionControl_Pause": {
+      "description": "Pause the robot immediately, without clearing the motion queue"
+    },
+    "MotionControl_ClearMove": {
+      "description": "Erases the motion commands in the queue and puts the robot in pause"
+    },
+    "MotionControl_ResumeMotion": {
+      "description": "Resume robot motion (upon rising edge of this bit only)"
+    },
+    "MotionControl_UseVariables": {
+      "description": "Interpret MotionCommand arguments as cyclic ID of variables to use as arguments for the executed command"
+    },
+    "Brakes_ControlAllowed": {
+      "description": "Set to 1 to allow brakes control from the cyclic data. Other fields from this struct are ignored if this bit is 0"
+    },
+    "Brakes_Engaged": {
+      "description": "Control brakes state when robot is powered but deactivated. Set to 1 to engage brakes, 0 to disengage. This bit is ignored if ControlAllowed is 0"
+    }
+  }
+}

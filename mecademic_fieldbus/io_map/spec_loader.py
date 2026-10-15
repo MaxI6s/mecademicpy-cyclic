@@ -119,6 +119,8 @@ class AssemblySpec:
         velocity_mode_commands: Names of the commands that run continuously
             while the move id is ``0``, instead of being queued when it
             changes.
+        dynamic_data_types: Identifiers accepted in the ``DynamicTypeCfg``
+            fields, keyed by type name.
         source: Provenance of the layout: vendor file, revision, firmware.
         source_path: Path of the file this specification was loaded from.
     """
@@ -132,6 +134,7 @@ class AssemblySpec:
     connection: ConnectionProfile = ConnectionProfile()
     motion_commands: Dict[str, int] = dataclass_field(default_factory=dict)
     velocity_mode_commands: FrozenSet[str] = frozenset()
+    dynamic_data_types: Dict[str, int] = dataclass_field(default_factory=dict)
     source: Dict[str, str] = dataclass_field(default_factory=dict)
     source_path: Optional[str] = None
 
@@ -224,6 +227,7 @@ def parse_spec(document: Dict[str, Any], source_path: Optional[str] = None) -> A
         connection=_parse_connection(document.get("connection", {})),
         motion_commands=_parse_motion_commands(document.get("motion_commands", {})),
         velocity_mode_commands=_parse_velocity_mode(document.get("motion_commands", {})),
+        dynamic_data_types=_parse_motion_commands(document.get("dynamic_data_types", {})),
         source=dict(document.get("source", {})),
         source_path=source_path,
     )
