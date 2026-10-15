@@ -1,14 +1,14 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=77.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "mecademic-fieldbus"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Standalone EtherNet/IP scanner library for Mecademic robots running in fieldbus mode"
 readme = "README.md"
 requires-python = ">=3.8"
-license = { text = "MIT" }
+license = "MIT"
 keywords = ["mecademic", "robot", "ethernet-ip", "fieldbus", "cip", "industrial"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -42,16 +42,15 @@ dev = [
 [project.scripts]
 mecademic-mock-robot = "mock_robot.__main__:main"
 
-[tool.setuptools]
 # TODO: "mock_robot" is a development tool that ships with the library so it
 # stays in sync with the assembly specification. Rename it to something less
 # generic before publishing this package anywhere public.
-packages = [
-    "mecademic_fieldbus",
-    "mecademic_fieldbus.io_map",
-    "mecademic_fieldbus.transports",
-    "mock_robot",
-]
+[tool.setuptools.packages.find]
+include = ["mecademic_fieldbus*", "mock_robot*"]
+
+[tool.setuptools.dynamic]
+# Single source of truth: mecademic_fieldbus.__version__.
+version = { attr = "mecademic_fieldbus.__version__" }
 
 [tool.setuptools.package-data]
 # The declarative assembly specification is the source of truth of the I/O map

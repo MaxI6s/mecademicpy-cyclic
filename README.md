@@ -63,6 +63,24 @@ Each layer is replaceable on its own:
 
 ## Install
 
+From a prebuilt wheel (no checkout needed):
+
+```bash
+pip install 'mecademic_fieldbus-0.1.0-py3-none-any.whl[ethernetip]'
+```
+
+Drop `[ethernetip]` to install only the dependency-free core (I/O map, facade,
+mock robot). The wheel also puts a `mecademic-mock-robot` command on the PATH.
+
+To build the wheel yourself:
+
+```bash
+pip install build
+python -m build        # writes dist/*.whl and dist/*.tar.gz
+```
+
+For development, from a checkout:
+
 ```bash
 pip install -e '.[dev]'
 ```
